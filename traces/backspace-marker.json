@@ -1,0 +1,11 @@
+{
+  "format": "editframe-trace/1",
+  "name": "backspace-marker",
+  "note": "Synthetic. Backspace deletes the last letter, then the whole hidden task marker at once (no half marker left).",
+  "setup": { "doc": "- [ ] 가", "head": "end" },
+  "steps": [
+    { "op": "key", "key": "Backspace" },
+    { "op": "key", "key": "Backspace" }
+  ],
+  "expect": ""
+}

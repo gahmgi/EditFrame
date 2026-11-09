@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="robots" content="noindex" />
+  <title>EditFrame 시험대</title>
+  <style>
+    :root{
+      color-scheme:light dark;
+      --bg:#f6f6f2; --panel:#fffefa; --ink:#28313c; --muted:#65707a; --line:#dedfda;
+      --accent:#315d85; --accent-soft:#e9eff4; --ok:#2e7d4f; --warn:#b45309;
+      --sans:-apple-system,BlinkMacSystemFont,"Noto Sans KR","Segoe UI",Roboto,sans-serif;
+      --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    }
+    @media (prefers-color-scheme: dark){
+      :root{ --bg:#181c22; --panel:#232830; --ink:#e7ebef; --muted:#aab2bc; --line:#3c454f;
+        --accent:#8fb9df; --accent-soft:#2c3e50; --ok:#6fcf97; --warn:#f2b35b; }
+    }
+    html,body{margin:0;background:var(--panel);color:var(--ink);font-family:var(--sans)}
+    .lab{max-width:780px;margin:0 auto;padding:12px 16px 30vh;
+      padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
+    h1{font-size:17px;margin:4px 0 8px}
+    .bar{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-bottom:10px}
+    .bar button,.bar select{min-height:40px;padding:0 12px;border:1px solid var(--line);border-radius:9px;
+      background:transparent;color:var(--accent);font:inherit;font-size:14px;cursor:pointer}
+    .bar button[aria-pressed=true]{background:var(--accent-soft)}
+    #status{font-size:13px;color:var(--muted);margin:0 0 8px}
+    #status .ok{color:var(--ok)} #status .warn{color:var(--warn)}
+    #editor .cm-editor{background:transparent;color:var(--ink);--ef-accent:var(--accent);--ef-muted:var(--muted);--ef-line:var(--line)}
+    #editor .cm-editor.cm-focused{outline:none}
+    /* 16px 미만이면 iOS 가 입력 때 화면을 확대한다 */
+    #editor .cm-scroller{font-family:var(--sans);font-size:16px;line-height:1.7}
+    #editor .cm-content{padding:0;min-height:40vh;caret-color:var(--ink)}
+    #editor .cm-line{padding:0}
+    details{border-top:1px solid var(--line);margin-top:16px;padding-top:8px}
+    summary{cursor:pointer;color:var(--accent);font-size:14px;min-height:32px}
+    pre{white-space:pre-wrap;word-break:break-all;font-family:var(--mono);font-size:12px;background:var(--bg);padding:8px;border-radius:8px;max-height:50vh;overflow:auto}
+    ol.check{padding-left:1.4em;font-size:14px;line-height:1.6}
+    ol.check li{margin:4px 0}
+    ol.check label{display:flex;gap:6px;align-items:flex-start}
+    .why{color:var(--muted);font-size:12px}
+    #log-panel[hidden]{display:none}
+    #log{max-height:40vh}
+    .small{font-size:12px;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <main class="lab">
+    <h1>EditFrame 시험대</h1>
+    <div class="bar">
+      <select id="sample" aria-label="견본 문서">
+        <option value="basic">견본: 기본 문법 전체</option>
+        <option value="worknote">견본: WorkNote 프리셋</option>
+      </select>
+      <button type="button" id="btn-raw" aria-pressed="false">원문 보기</button>
+      <button type="button" id="btn-ro" aria-pressed="false">읽기 전용</button>
+      <button type="button" id="btn-reset">처음 상태로</button>
+      <button type="button" id="btn-log" aria-pressed="false">입력 기록</button>
+    </div>
+    <p id="status" role="status">불러오는 중…</p>
+    <div id="editor"></div>
+
+    <section id="log-panel" hidden>
+      <details open>
+        <summary>입력 기록 (켜 둔 동안만 기록)</summary>
+        <p class="small">문제가 생긴 순간까지 그대로 입력한 뒤 「기록 복사」를 눌러 붙여 보내 주세요. 기록에는 이 화면에서 친 글자가 그대로 들어갑니다.</p>
+        <div class="bar">
+          <button type="button" id="btn-log-copy">기록 복사</button>
+          <button type="button" id="btn-log-clear">기록 지우기</button>
+        </div>
+        <pre id="log" aria-live="off"></pre>
+        <textarea id="log-fallback" hidden rows="6" style="width:100%;font-family:var(--mono);font-size:12px"></textarea>
+      </details>
+    </section>
+
+    <details>
+      <summary>지금 저장될 마크다운</summary>
+      <pre id="md"></pre>
+    </details>
+
+    <details open>
+      <summary>아이폰·PC 점검 목록</summary>
+      <p class="small">한 항목씩 해 보고, 이상하면 「입력 기록」을 켠 채로 다시 해서 기록을 보내 주세요. 체크는 이 기기에만 남습니다.</p>
+      <ol class="check" id="checklist">
+        <li><label><input type="checkbox" data-k="open">문서를 열고 아무것도 안 고친 채 「원문과 같음」이 보인다.</label></li>
+        <li><label><input type="checkbox" data-k="bold-end"><span><b>굵은 글자 바로 뒤</b>에 한글을 친다(예: 「제철」 뒤에 「입니다」). 글자가 두 번 들어가거나 빠지지 않는다.</span></label></li>
+        <li><label><input type="checkbox" data-k="link-end">링크 글자 바로 뒤에 한글을 친다. 자모가 흩어지지 않는다.</label></li>
+        <li><label><input type="checkbox" data-k="task-end">할 일 항목 끝에 한글을 이어 친다.</label></li>
+        <li><label><input type="checkbox" data-k="after-widget"><span>체크박스·말머리표 <b>바로 뒤(빈 항목)</b>에서 한글 첫 글자를 친다.</span></label></li>
+        <li><label><input type="checkbox" data-k="cell-ko">표 칸을 눌러 한글을 친다. 칸을 나가면 굵게·링크가 다시 꾸며져 보인다.</label></li>
+        <li><label><input type="checkbox" data-k="cell-space"><span>표 칸에서 <b>띄어쓰기</b>: 「사과 두 개」처럼 단어 사이 공백이 사라지지 않는다. <span class="why">(Atomic Editor 이슈 #18)</span></span></label></li>
+        <li><label><input type="checkbox" data-k="predict"><span>아이폰 <b>자동완성(추천 단어) 줄</b>을 눌러 단어를 넣는다. 마지막 한글이 두 번 들어가지 않는다. <span class="why">(Obsidian 에서 보고된 증상)</span></span></label></li>
+        <li><label><input type="checkbox" data-k="undo"><span>한글을 친 <b>직후</b> 세 손가락 되돌리기(또는 흔들어 취소)·선택 손잡이 끌기를 한다. 문서가 깨지지 않는다.</span></label></li>
+        <li><label><input type="checkbox" data-k="enter-compose"><span>글자를 조합하는 <b>도중에 Enter</b>: 그 음절이 확정되고 다음 줄로 간다. 음절이 쪼개지거나 두 번 들어가지 않는다. 목록이면 새 항목이 생긴다.</span></label></li>
+        <li><label><input type="checkbox" data-k="bs-marker"><span>항목 첫 글자 앞에서 <b>지우기(Backspace)</b>: 숨은 표식(`- [ ] `)이 통째로 지워진다. 반쪽 표식이 남지 않는다.</span></label></li>
+        <li><label><input type="checkbox" data-k="checkbox">체크박스를 누르면 체크만 바뀌고 커서는 그대로다. 되돌리기로 돌아간다.</label></li>
+        <li><label><input type="checkbox" data-k="raw">「원문 보기」를 켜고 끄면 문서 글자가 하나도 바뀌지 않는다.</label></li>
+        <li><label><input type="checkbox" data-k="pc-keys">PC: Tab/Shift+Tab 들여쓰기, Ctrl+B·Ctrl+U, 표 칸에서 Tab·Enter 이동이 된다.</label></li>
+      </ol>
+    </details>
+  </main>
+  <script type="module" src="./lab.js"></script>
+  <script>
+    // 모듈을 못 받으면 빈 화면만 남는다 — 그 사실을 알린다.
+    setTimeout(function () {
+      if (!window.__ef) document.getElementById("status").textContent = "편집기를 불러오지 못했습니다. dist/editframe.mjs 가 있는지(npm run build) 확인하세요.";
+    }, 8000);
+  </script>
+</body>
+</html>

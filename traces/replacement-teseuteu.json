@@ -1,0 +1,15 @@
+{
+  "format": "editframe-trace/1",
+  "name": "replacement-teseuteu",
+  "note": "Synthetic. WebKit-style Korean input with NO composition events: each syllable starts as insertText and grows via insertReplacementText replacing the previous character. Typed right after a bold span on a task line.",
+  "setup": { "doc": "- [ ] 장보기 **우유**", "head": "end" },
+  "steps": [
+    { "op": "insertText", "text": "ㅌ" },
+    { "op": "replacePrev", "len": 1, "text": "테" },
+    { "op": "insertText", "text": "ㅅ" },
+    { "op": "replacePrev", "len": 1, "text": "스" },
+    { "op": "insertText", "text": "ㅌ" },
+    { "op": "replacePrev", "len": 1, "text": "트" }
+  ],
+  "expect": "- [ ] 장보기 **우유**테스트"
+}

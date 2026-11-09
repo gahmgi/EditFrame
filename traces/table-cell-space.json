@@ -1,0 +1,15 @@
+{
+  "format": "editframe-trace/1",
+  "name": "table-cell-space",
+  "note": "Synthetic. Atomic Editor issue #18: spaces typed in a table cell must stay. Then Korean composition in the same cell. Only that cell's bytes may change.",
+  "setup": { "doc": "| 품목 | 메모 |\n| :--- | ---: |\n| 사과 | |\n| 우유 | 1 |", "head": "end" },
+  "steps": [
+    { "op": "cell", "row": 1, "col": 1 },
+    { "op": "insertText", "text": "hello" },
+    { "op": "insertText", "text": " " },
+    { "op": "insertText", "text": "world" },
+    { "op": "insertText", "text": " " },
+    { "op": "ime", "text": "ㅎ" }, { "op": "ime", "text": "한" }, { "op": "commit", "text": "한" }
+  ],
+  "expect": "| 품목 | 메모 |\n| :--- | ---: |\n| 사과 | hello world 한 |\n| 우유 | 1 |"
+}

@@ -1,0 +1,13 @@
+{
+  "format": "editframe-trace/1",
+  "name": "composition-enter-list",
+  "note": "Synthetic. Standard composition events (Windows Chrome style) on an empty task item, then Enter continues the list.",
+  "setup": { "doc": "- [ ] ", "head": "end" },
+  "steps": [
+    { "op": "ime", "text": "ㅎ" }, { "op": "ime", "text": "하" }, { "op": "ime", "text": "한" }, { "op": "commit", "text": "한" },
+    { "op": "ime", "text": "ㄱ" }, { "op": "ime", "text": "그" }, { "op": "ime", "text": "글" }, { "op": "commit", "text": "글" },
+    { "op": "key", "key": "Enter" },
+    { "op": "ime", "text": "ㄷ" }, { "op": "ime", "text": "두" }, { "op": "commit", "text": "두" }
+  ],
+  "expect": "- [ ] 한글\n- [ ] 두"
+}

@@ -1,0 +1,12 @@
+{
+  "format": "editframe-trace/1",
+  "name": "after-bullet-widget",
+  "note": "Synthetic. First Korean syllable typed right after a hidden bullet marker (caret touches the bullet widget).",
+  "setup": { "doc": "- 사과\n- ", "head": "end" },
+  "steps": [
+    { "op": "ime", "text": "ㅂ" }, { "op": "ime", "text": "바" }, { "op": "commit", "text": "바" },
+    { "op": "insertText", "text": "ㄴ" }, { "op": "replacePrev", "len": 1, "text": "나" },
+    { "op": "insertText", "text": "ㄴ" }, { "op": "replacePrev", "len": 1, "text": "나" }
+  ],
+  "expect": "- 사과\n- 바나나"
+}
