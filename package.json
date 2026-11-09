@@ -1,0 +1,29 @@
+{
+  "name": "editframe",
+  "version": "0.1.0",
+  "description": "Framework-free CodeMirror 6 live-preview markdown editor (markdown text is the source of truth)",
+  "main": "dist/editframe.mjs",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test test/*.test.js",
+    "serve": "node scripts/serve.mjs"
+  },
+  "author": "gahmgi",
+  "license": "MIT",
+  "type": "module",
+  "devDependencies": {
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.15",
+    "esbuild": "^0.28.2"
+  },
+  "private": true,
+  "exports": {
+    ".": "./dist/editframe.mjs",
+    "./src": "./src/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gahmgi/EditFrame.git"
+  }
+}
