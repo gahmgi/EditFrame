@@ -11,7 +11,7 @@
 > tables with editable cells and a row/column menu), turns tables pasted from spreadsheets or web pages
 > into GFM, offers a tap-to-open button for links on touch screens, is built around Korean IME safety on
 > iOS Safari and Windows Chrome, and takes product-specific inline syntax through presets. Ships as one ESM file with CodeMirror bundled
-> (`dist/editframe.mjs`, ~302 KB raw / ~99 KB gzip). MIT.
+> (`dist/editframe.mjs`, ~304 KB raw / ~100 KB gzip). MIT.
 
 ## 무엇을 하나
 
@@ -22,6 +22,7 @@
   칸을 고치는 동안 칸 모서리에 ⋯ 단추 하나가 떠서 줄·열을 넣고 지웁니다(Ctrl/⌘+Enter: 아래에 줄). 줄을 고치면 그 줄만,
   열을 고치면 줄마다 그 칸만 바뀝니다(여백·정렬 `:---:`·`\|` 그대로).
 - **표 붙여 넣기** — 엑셀·Numbers·구글 시트·웹 페이지의 표를 붙이면 GFM 표가 됩니다(병합 칸은 값을 줄마다 적어 풂).
+  클립보드에 표 하나만 있을 때만 바꿉니다. 표 앞뒤에 글이 있거나 표가 둘 이상이면, 코드 블록 안이거나 Ctrl/⌘+Shift+V(서식 없이 붙여 넣기)면 그대로 붙습니다.
 - **한글 입력 안전장치** — 글자를 입력하는 동안에는 화면 장식을 다시 그리지 않습니다(조합 이벤트가 없는 iOS 경로 포함).
   자세한 규칙은 [CLAUDE.md](CLAUDE.md) 「iOS IME」.
 - **프리셋** — 제품 전용 문법은 코어 밖에 둡니다. 예: `worknotePreset()` 은 `[[제목|uuid]]` 를 칩으로,
@@ -41,15 +42,17 @@
 | 6 | 아이폰에서 되돌리기와 링크 열기가 쉽다 | `test/open-button.test.js`(「열기 ↗」 표시 조건), `replay-traces.mjs`(터치 흉내로 누르기). 세 손가락 되돌리기는 헤드리스로 확인할 수 없어 실기기 점검 목록에 둠 |
 | 7 | 긴 글도 끊기지 않는다(측정한 예산 안) | `node scripts/bench.mjs` — 2,000줄 문서에서 장식 다시 계산 중앙값 8ms 미만 |
 
-**긴 글 측정값** (2026-11-10, 이 PC, 헤드리스 Chrome 156, `node scripts/bench.mjs` 네 번, 2,000줄·68,222자·표 22개, 각 60회의 중앙값 / p95 범위)
+**긴 글 측정값** (2026-11-10, 이 PC, 헤드리스 Chrome 156, `node scripts/bench.mjs` 일곱 번, 2,000줄·68,222자·표 22개, 각 60회의 중앙값 / p95 범위)
 
 | 측정 | 중앙값 | p95 |
 | --- | ---: | ---: |
-| 장식 전체 다시 계산(입력이 멈출 때 한 번, 커서가 기호를 드러낼 때) | 4.9–5.1ms | 5.9–8.2ms |
-| 연속 입력 중 글자 하나(장식은 옮기기만 함) | 0.6ms | 0.9–1.2ms |
-| 커서 이동으로 기호 드러내기(화면 갱신 포함) | 5.7–6.1ms | 7.1–7.7ms |
-| 체크박스 누르기(화면 갱신 포함) | 4.6–5.6ms | 6.7–8.4ms |
-| 문서 열기(첫 화면까지) | 42–50ms | — |
+| 장식 전체 다시 계산(입력이 멈출 때 한 번, 커서가 기호를 드러낼 때) | 4.9–6.1ms | 5.9–9.2ms |
+| 연속 입력 중 글자 하나(장식은 옮기기만 함) | 0.6–0.9ms | 0.9–1.6ms |
+| 커서 이동으로 기호 드러내기(화면 갱신 포함) | 5.7–8.0ms | 7.1–11.4ms |
+| 체크박스 누르기(화면 갱신 포함) | 4.6–7.3ms | 6.7–11.9ms |
+| 문서 열기(첫 화면까지) | 42–65ms | — |
+
+같은 코드에서도 실행마다 PC 부하에 따라 10–30% 오르내립니다.
 
 예산 안이라 화면에 보이는 범위만 계산하는 최적화는 하지 않았습니다. 4,000줄이면 다시 계산이 중앙값 약 10ms 로 예산을 넘습니다(줄 수에 비례).
 
@@ -111,7 +114,7 @@ const myPreset = {
 
 ## 크기
 
-`dist/editframe.mjs`: **302.2 KB**(압축 전) / **99.2 KB**(gzip). CodeMirror state·view·commands 포함. (`npm run build` 가 다시 잰다.)
+`dist/editframe.mjs`: **303.9 KB**(압축 전) / **99.7 KB**(gzip). CodeMirror state·view·commands 포함. (`npm run build` 가 다시 잰다.)
 
 ## 개발
 

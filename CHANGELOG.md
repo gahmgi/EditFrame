@@ -12,7 +12,14 @@
   pointers; never while typing or composing). 3+-finger `touchmove` no longer scrolls (iOS undo gesture).
 - `scripts/bench.mjs` long-note benchmark; lab samples 「표 편집해 보기」 and 「긴 글 불러오기」;
   `scripts/cdp.mjs` shared by the replay and bench scripts.
-- `dist/editframe.mjs` 302.2 KB raw / 99.2 KB gzip.
+- Review fixes: inserted line breaks follow the document's separator (CRLF documents no longer get a bare
+  `\n` inside a line — table rows, appended rows, pasted tables, list continuation, leaving a table); HTML
+  paste converts only a clipboard that is exactly one data table; no conversion inside fenced code or on
+  Ctrl/⌘+Shift+V; table widgets release their document/viewport listeners on destroy; inserted rows keep the
+  table's indentation; pasted `\` before `|` is escaped; on fine pointers the table menu blurs the cell
+  (OS IME commit) before the edit; the 3-finger guard adds its non-passive touchmove only during 3+-finger
+  touches.
+- `dist/editframe.mjs` 303.9 KB raw / 99.7 KB gzip.
 
 ## 0.1.0 — 2026-11-09
 

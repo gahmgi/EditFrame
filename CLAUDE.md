@@ -25,6 +25,9 @@ public forever.
   loaded with every option set, the caret visits every position, and the text must not change.
 - Read text back with `getDoc()` / `state.sliceDoc()` (keeps `\r\n` documents intact), not
   `state.doc.toString()`.
+- Write line breaks in dispatched text through `withLineBreaks(state, s)` (table.js) / `state.lineBreak`. A
+  `\r\n` document sets `EditorState.lineSeparator`, and then a bare `"\n"` in an insert stays *inside* a line.
+  `test/table-edit.test.js` covers the CRLF paths.
 
 ## Completion criteria (each guarded by a test)
 
