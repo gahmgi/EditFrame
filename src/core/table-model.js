@@ -131,3 +131,93 @@ export function cellEdit(line, col, text, pads = cellPads(line, col)) {
 export function emptyRow(cols) {
   return "|" + "  |".repeat(cols);
 }
+
+// ---------------------------------------------------------------- row / column structure edits
+// All functions take the table's lines (header, delimiter, body rows — exactly the table, no more) and
+// return changes as [{ from, to, insert }] in offsets relative to the table start, with lines joined by a
+// single line break (CodeMirror counts every line break as one position, whatever the separator is).
+// Row edits touch only that row's line. Column edits insert or remove just one cell segment per row and keep
+// every other byte (padding, alignment colons, escaped `\|`). Rows shorter than the column are left alone:
+// their missing cells are already empty.
+
+const lineStarts = (lines) => {
+  const out = [];
+  let at = 0;
+  for (const l of lines) { out.push(at); at += l.length + 1; }
+  return out;
+};
+
+// Insert an empty body row above/below logical row `row` (0 = header; nothing goes above the header).
+// Returns { changes, row } where `row` is the new row's logical index, or null.
+export function insertRow(lines, row, below) {
+  const cols = splitCells(lines[0]).length;
+  if (!cols || row < 0 || (!below && row === 0)) return null;
+  const k = row === 0 ? 1 : rowLine(row);
+  if (k >= lines.length) return null;
+  const starts = lineStarts(lines);
+  if (below) {
+    const at = starts[k] + lines[k].length;
+    return { changes: [{ from: at, to: at, insert: "\n" + emptyRow(cols) }], row: row + 1 };
+  }
+  return { changes: [{ from: starts[k], to: starts[k], insert: emptyRow(cols) + "\n" }], row };
+}
+
+// Delete body row `row` (≥ 1). The header cannot be deleted; the last body row can (the header stays).
+// Returns { changes, row } where `row` is the neighbour to focus afterwards.
+export function deleteRow(lines, row) {
+  const k = rowLine(row);
+  if (row < 1 || k >= lines.length) return null;
+  const starts = lineStarts(lines);
+  const bodyRows = lines.length - 2;
+  if (k < lines.length - 1) return { changes: [{ from: starts[k], to: starts[k + 1], insert: "" }], row };
+  // Last line of the table: take the line break before it, so the text after the table keeps its own.
+  return { changes: [{ from: starts[k] - 1, to: starts[k] + lines[k].length, insert: "" }], row: bodyRows > 1 ? row - 1 : 0 };
+}
+
+const hasUnescapedPipe = (s) => splitCells(s).length > 0;
+
+// Insert an empty column left/right of column `col`. The new delimiter cell is ` --- `.
+export function insertColumn(lines, col, right) {
+  const cols = splitCells(lines[0]).length;
+  if (col < 0 || col >= cols) return null;
+  const starts = lineStarts(lines);
+  const changes = [];
+  lines.forEach((s, k) => {
+    const segs = splitCells(s);
+    if (segs.length <= col) return; // short row: the new column is implicitly empty there
+    const cell = k === 1 ? " --- " : "  ";
+    const seg = segs[col];
+    let at, insert;
+    if (right) {
+      at = seg.to;
+      const last = col === segs.length - 1, trailingPipe = seg.to < s.length;
+      insert = last && !trailingPipe ? "|" + cell + "|" : "|" + cell;
+    } else {
+      at = seg.from;
+      const leadingPipe = segs[0].from > 0;
+      insert = col === 0 && !leadingPipe ? "|" + cell + "|" : cell + "|";
+    }
+    changes.push({ from: starts[k] + at, to: starts[k] + at, insert });
+  });
+  return { changes, col: right ? col + 1 : col };
+}
+
+// Delete column `col`. Disabled for the only column. Each row loses that cell and one pipe next to it; a row
+// that would be left without any pipe keeps the pipe (it must stay a table row).
+export function deleteColumn(lines, col) {
+  const cols = splitCells(lines[0]).length;
+  if (cols < 2 || col < 0 || col >= cols) return null;
+  const starts = lineStarts(lines);
+  const changes = [];
+  lines.forEach((s, k) => {
+    const segs = splitCells(s);
+    if (segs.length <= col) return;
+    const seg = segs[col];
+    const trailingPipe = seg.to < s.length;
+    // The cell and the pipe after it; for a last cell without a trailing pipe, the pipe before it.
+    let [a, b] = trailingPipe ? [seg.from, seg.to + 1] : [seg.from - 1, seg.to];
+    if (a < 0 || !hasUnescapedPipe(s.slice(0, a) + s.slice(b))) [a, b] = [seg.from, seg.to];
+    if (b > a) changes.push({ from: starts[k] + a, to: starts[k] + b, insert: "" });
+  });
+  return { changes, col: Math.min(col, cols - 2) };
+}

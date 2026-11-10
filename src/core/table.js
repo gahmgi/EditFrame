@@ -18,8 +18,8 @@
 
 import { WidgetType } from "@codemirror/view";
 import { EditorSelection } from "@codemirror/state";
-import { undo, redo } from "@codemirror/commands";
-import { tableAt, rowLine, cellEdit, cellPads, splitCells, cellText, emptyRow } from "./table-model.js";
+import { undo, redo, isolateHistory } from "@codemirror/commands";
+import { tableAt, rowLine, cellEdit, cellPads, splitCells, cellText, emptyRow, insertRow, deleteRow, insertColumn, deleteColumn } from "./table-model.js";
 import { efConfig } from "./config.js";
 
 // Render a cell's markdown as inline-styled DOM (markers removed) using the editor's scanner.
@@ -87,7 +87,7 @@ function locate(view, td) {
   const lineNo = first.number + rowLine(row);
   if (lineNo > first.number + model.end) return null;
   const line = doc.line(lineNo);
-  return { wrap, model, row, col, line, tableFrom: first.from, tableTo: doc.line(first.number + model.end).to };
+  return { wrap, model, row, col, line, lines: texts.slice(0, model.end + 1), tableFrom: first.from, tableTo: doc.line(first.number + model.end).to };
 }
 
 const inputOf = (td) => td.querySelector(".ef-cell-input");
@@ -137,24 +137,28 @@ function attachCell(view, td) {
     pads = cellPads(loc.line.text, loc.col);
   };
 
+  td._efFlush = () => { if (composing) { composing = false; commit(); } };
   input.addEventListener("focus", () => {
     const loc = locate(view, td);
     // Padding is captured once per edit session. Re-deriving it from the text after each keystroke would
     // treat a just-typed trailing space as padding and drop it (Atomic Editor issue #18).
     pads = loc ? cellPads(loc.line.text, loc.col) : null;
+    showHandle(td);
   });
   input.addEventListener("blur", () => {
     if (composing) commit(); // some IMEs end composition only by blurring
     pads = null;
     composing = false;
+    hideHandle(td);
     td.classList.remove("ef-editing");
     renderInline(td.querySelector(".ef-cell-view"), td.dataset.raw || "", view.state.facet(efConfig).scan);
   });
   input.addEventListener("compositionstart", () => { composing = true; });
-  input.addEventListener("compositionend", () => { composing = false; commit(); });
+  input.addEventListener("compositionend", () => { composing = false; commit(); placeHandle(td); });
   input.addEventListener("input", (e) => {
     if (composing || e.isComposing) return;
     commit();
+    placeHandle(td); // the cell may have grown; the handle is outside the cell, so this never touches the input
   });
   input.addEventListener("keydown", (e) => {
     // Never act on keys that belong to an active composition (Enter that commits a syllable, etc.).
@@ -166,6 +170,7 @@ function attachCell(view, td) {
       resync();
       return;
     }
+    if (mod && e.key === "Enter") { e.preventDefault(); structural(view, td, "rowBelow"); return; }
     if (e.key === "Tab") { e.preventDefault(); moveFocus(view, td, e.shiftKey ? -1 : 1); }
     else if (e.key === "Enter") { e.preventDefault(); moveRow(view, td, e.shiftKey ? -1 : 1); }
     else if (e.key === "Escape") { e.preventDefault(); leaveTable(view, td, 1); }
@@ -219,19 +224,190 @@ function appendRow(view, td, col) {
   if (!loc) return;
   const rows = loc.model.rows.length;
   view.dispatch({ changes: { from: loc.tableTo, insert: "\n" + emptyRow(loc.model.cols) }, userEvent: "input" });
-  const from = loc.tableFrom;
-  // The row count changed, so the widget is rebuilt. Wait for CodeMirror to draw it, then focus.
-  // (On iOS the keyboard may close here: focus outside the original tap is not always honoured.)
-  requestAnimationFrame(() => requestAnimationFrame(() => {
+  focusCell(view, loc.tableFrom, rows, col);
+}
+
+// After a structural change the widget is rebuilt. CodeMirror has already drawn it when dispatch returns, so
+// try to focus right away (still inside the user's tap — iOS then keeps the keyboard open); if that cell is not
+// there yet, wait for CodeMirror to draw (double rAF) and try again. (On iOS the keyboard may close in the
+// fallback: focus outside the original tap is not always honoured.)
+function focusCell(view, from, row, col) {
+  const attempt = () => {
     for (const wrap of view.dom.querySelectorAll(".ef-table")) {
       let p = -1;
       try { p = view.posAtDOM(wrap); } catch {}
       if (p !== from) continue;
-      const target = wrap.querySelector(`[data-row="${rows}"][data-col="${col}"]`);
-      if (target) editCell(target);
-      return;
+      const target = wrap.querySelector(`[data-row="${row}"][data-col="${col}"]`);
+      if (target) { editCell(target); return document.activeElement === inputOf(target); }
+      return false;
     }
-  }));
+    return false;
+  };
+  if (!attempt()) requestAnimationFrame(() => requestAnimationFrame(attempt));
+}
+
+// ---------------------------------------------------------------- row / column menu
+// One small «⋯» handle per table, shown only while a cell input is focused, opens a short menu. Taps on the
+// handle and the menu never take focus from the cell input (mousedown / touchend are cancelled), so the iOS
+// keyboard does not drop and come back. Each action is one transaction with its own undo step.
+
+const ACTIONS = {
+  rowAbove: (lines, r) => insertRow(lines, r, false),
+  rowBelow: (lines, r) => insertRow(lines, r, true),
+  colLeft: (lines, r, c) => insertColumn(lines, c, false),
+  colRight: (lines, r, c) => insertColumn(lines, c, true),
+  rowDelete: (lines, r) => deleteRow(lines, r),
+  colDelete: (lines, r, c) => deleteColumn(lines, c),
+};
+const MENU = [
+  ["rowAbove", "위에 줄 넣기"], ["rowBelow", "아래에 줄 넣기"],
+  ["colLeft", "왼쪽에 열 넣기"], ["colRight", "오른쪽에 열 넣기"],
+  ["rowDelete", "이 줄 지우기"], ["colDelete", "이 열 지우기"],
+];
+// Which items are unavailable for this cell: nothing goes above the header, the header cannot be deleted,
+// and the only column cannot be deleted.
+export function disabledActions(row, cols) {
+  const off = new Set();
+  if (row === 0) { off.add("rowAbove"); off.add("rowDelete"); }
+  if (cols < 2) off.add("colDelete");
+  return off;
+}
+
+function structural(view, td, action) {
+  if (view.state.readOnly) return;
+  td._efFlush?.(); // a composition still open in the cell is committed before the widget is rebuilt
+  const loc = locate(view, td);
+  if (!loc || disabledActions(loc.row, loc.model.cols).has(action)) return;
+  const res = ACTIONS[action](loc.lines, loc.row, loc.col);
+  if (!res || !res.changes.length) return;
+  view.dispatch({
+    changes: res.changes.map((c) => ({ from: loc.tableFrom + c.from, to: loc.tableFrom + c.to, insert: c.insert })),
+    userEvent: "input.table",
+    annotations: isolateHistory.of("full"),
+  });
+  focusCell(view, loc.tableFrom, res.row ?? loc.row, res.col ?? loc.col);
+}
+
+const partsOf = (td) => {
+  const wrap = td.closest(".ef-table");
+  return wrap && { wrap, handle: wrap.querySelector(".ef-table-handle"), menu: wrap.querySelector(".ef-table-menu") };
+};
+
+// Put the handle on the cell's top-right corner (positions relative to the table wrapper).
+function placeHandle(td) {
+  const p = partsOf(td);
+  if (!p || p.handle.hidden) return;
+  const w = p.wrap.getBoundingClientRect(), r = td.getBoundingClientRect();
+  const x = Math.min(Math.max(r.right - w.left, 16), p.wrap.clientWidth - 16);
+  p.handle.style.left = x + "px";
+  p.handle.style.top = Math.max(r.top - w.top, 16) + "px";
+  if (!p.menu.hidden) placeMenu(p);
+}
+// The menu is `position: fixed` so the editor's scroll box cannot clip it. It opens below the handle, or above
+// it when the bottom of the visible area (above the on-screen keyboard, via visualViewport) is too close.
+function placeMenu(p) {
+  const h = p.handle.getBoundingClientRect();
+  const width = p.menu.offsetWidth, height = p.menu.offsetHeight;
+  const vv = window.visualViewport;
+  const left = vv ? vv.offsetLeft : 0, top = vv ? vv.offsetTop : 0;
+  const right = left + (vv ? vv.width : window.innerWidth), bottom = top + (vv ? vv.height : window.innerHeight);
+  const x = Math.max(left + 4, Math.min(h.right - width, right - width - 4));
+  let y = h.bottom + 2;
+  if (y + height > bottom) y = h.top - 2 - height >= top ? h.top - 2 - height : Math.max(top + 4, bottom - height - 4);
+  p.menu.style.left = x + "px";
+  p.menu.style.top = y + "px";
+}
+function showHandle(td) {
+  const p = partsOf(td);
+  if (!p?.handle) return;
+  p.wrap._efCell = td;
+  p.handle.hidden = false;
+  placeHandle(td);
+}
+function hideHandle(td) {
+  const p = partsOf(td);
+  if (!p?.handle || p.wrap._efCell !== td) return;
+  p.wrap._efCell = null;
+  p.handle.hidden = true;
+  closeMenu(p);
+}
+function closeMenu(p) {
+  p.menu.hidden = true;
+  p.handle.setAttribute("aria-expanded", "false");
+  if (p.wrap._efFollow) {
+    document.removeEventListener("scroll", p.wrap._efFollow, true);
+    window.visualViewport?.removeEventListener("resize", p.wrap._efFollow);
+    p.wrap._efFollow = null;
+  }
+}
+function toggleMenu(view, wrap) {
+  const td = wrap._efCell;
+  const p = td && partsOf(td);
+  if (!p) return;
+  if (!p.menu.hidden) return closeMenu(p);
+  const off = disabledActions(Number(td.dataset.row), Number(wrap.dataset.cols));
+  for (const b of p.menu.querySelectorAll("button")) b.disabled = off.has(b.dataset.action);
+  p.menu.hidden = false;
+  p.handle.setAttribute("aria-expanded", "true");
+  placeMenu(p);
+  // Keep the fixed menu next to the handle while anything scrolls or the keyboard resizes the viewport.
+  wrap._efFollow = () => { if (wrap.isConnected && !p.menu.hidden) placeMenu(p); };
+  document.addEventListener("scroll", wrap._efFollow, { capture: true, passive: true });
+  window.visualViewport?.addEventListener("resize", wrap._efFollow);
+}
+
+// A tap that must not move focus: touchend is cancelled (no synthetic mouse events, no blur of the cell
+// input, no click), mousedown is cancelled for the mouse, and the action runs from touchend or click.
+function onTap(el, act) {
+  let start = null;
+  el.addEventListener("mousedown", (e) => e.preventDefault());
+  el.addEventListener("touchstart", (e) => { const t = e.touches[0]; start = t && { x: t.clientX, y: t.clientY }; }, { passive: true });
+  el.addEventListener("touchend", (e) => {
+    const t = e.changedTouches[0];
+    const moved = !start || !t || Math.abs(t.clientX - start.x) > 10 || Math.abs(t.clientY - start.y) > 10;
+    start = null;
+    if (moved || e.touches.length) return;
+    e.preventDefault();
+    act(e);
+  });
+  el.addEventListener("click", (e) => { e.preventDefault(); act(e); });
+}
+
+function buildMenu(view, wrap) {
+  const handle = document.createElement("button");
+  handle.type = "button";
+  handle.className = "ef-table-handle";
+  handle.hidden = true;
+  handle.tabIndex = -1;
+  handle.setAttribute("aria-label", "표 편집");
+  handle.setAttribute("aria-haspopup", "menu");
+  handle.setAttribute("aria-expanded", "false");
+  const dot = document.createElement("span");
+  dot.textContent = "⋯";
+  dot.setAttribute("aria-hidden", "true");
+  handle.append(dot);
+  onTap(handle, () => toggleMenu(view, wrap));
+
+  const menu = document.createElement("div");
+  menu.className = "ef-table-menu";
+  menu.setAttribute("role", "menu");
+  menu.hidden = true;
+  for (const [action, label] of MENU) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.tabIndex = -1;
+    b.dataset.action = action;
+    b.setAttribute("role", "menuitem");
+    b.textContent = label;
+    onTap(b, () => {
+      const td = wrap._efCell;
+      if (b.disabled || !td) return;
+      closeMenu(partsOf(td));
+      structural(view, td, action);
+    });
+    menu.append(b);
+  }
+  return [handle, menu];
 }
 
 export class TableWidget extends WidgetType {
@@ -301,8 +477,15 @@ export class TableWidget extends WidgetType {
       (r === 0 ? thead : tbody).append(tr);
     });
     table.append(thead, tbody);
-    wrap.append(table);
+    // The table scrolls sideways inside its own box; the handle and menu sit outside it so they are not clipped.
+    const scroller = document.createElement("div");
+    scroller.className = "ef-table-scroll";
+    scroller.append(table);
+    wrap.dataset.cols = String(this.model.cols);
+    wrap.append(scroller);
     if (!this.readOnly) {
+      wrap.append(...buildMenu(view, wrap));
+      scroller.addEventListener("scroll", () => { if (wrap._efCell) placeHandle(wrap._efCell); }, { passive: true });
       // Tap a cell → edit it. Runs on click (a user gesture) so iOS opens the keyboard.
       wrap.addEventListener("mousedown", (e) => {
         if (!e.target.closest?.(".ef-cell-input")) e.preventDefault();

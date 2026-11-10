@@ -99,6 +99,92 @@ async function runStep(cdp, s) {
   }
 }
 
+// Real input on an element: a mouse click, or a raw touch (touchstart + touchend). Headless Chrome does not
+// turn a touch into compatibility mouse events or a click, so the touch path checks the touchend handling only.
+async function tapElement(cdp, selector, how) {
+  const r = await cdp.eval(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return null; const b = el.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; })()`);
+  if (!r) throw new Error("not found: " + selector);
+  if (how === "touch") {
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: r.x, y: r.y }] });
+    return cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  }
+  await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x: r.x, y: r.y, button: "left", clickCount: 1 });
+  return cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: r.x, y: r.y, button: "left", clickCount: 1 });
+}
+
+// Table «⋯» menu: every item through real mouse and touch taps. The cell input must keep focus while the
+// handle and menu are used, the document must match the pure transform, focus must land on a sensible cell,
+// and one undo must restore the text.
+async function tableMenuCheck(cdp, problems) {
+  const { insertRow, deleteRow, insertColumn, deleteColumn } = await import("../src/core/table-model.js");
+  const DOC = "앞 문단\n\n| 품목 |  수량 | 메모 |\n| :--- | ---: | :-: |\n| 사과 | 3 | x \\| y |\n| 우유 | 1 |\n\n끝";
+  const tableStart = DOC.indexOf("| 품목");
+  const tableLines = DOC.slice(tableStart).split("\n").slice(0, 4);
+  const expectFor = (res) => {
+    let out = DOC;
+    for (const c of [...res.changes].sort((a, b) => b.from - a.from)) out = out.slice(0, tableStart + c.from) + c.insert + out.slice(tableStart + c.to);
+    return out;
+  };
+  const cases = [
+    ["rowAbove", 1, 1, () => insertRow(tableLines, 1, false), [1, 1]],
+    ["rowBelow", 0, 2, () => insertRow(tableLines, 0, true), [1, 2]],
+    ["colLeft", 2, 0, () => insertColumn(tableLines, 0, false), [2, 0]],
+    ["colRight", 1, 2, () => insertColumn(tableLines, 2, true), [1, 3]],
+    ["rowDelete", 1, 1, () => deleteRow(tableLines, 1), [1, 1]],
+    ["rowDelete", 2, 0, () => deleteRow(tableLines, 2), [1, 0]],
+    ["colDelete", 1, 2, () => deleteColumn(tableLines, 2), [1, 1]],
+  ];
+  let bad = 0;
+  const before = problems.length;
+  for (const [i, [action, row, col, fn, [fr, fc]]] of cases.entries()) {
+    const how = i % 2 ? "touch" : "mouse";
+    const fail = (msg) => { bad++; console.log(`FAIL table menu ${action} (${how}): ${msg}`); };
+    await cdp.eval(`(() => { __ef.load("basic"); __ef.editor.setDoc(${JSON.stringify(DOC)}); })()`);
+    await sleep(50);
+    try {
+      await tapElement(cdp, `.ef-table [data-row="${row}"][data-col="${col}"] .ef-cell-view`, "mouse");
+      await sleep(60);
+      const hidden = await cdp.eval(`document.querySelector(".ef-table-handle").hidden`);
+      if (hidden) { fail("handle not shown for a focused cell"); continue; }
+      await tapElement(cdp, ".ef-table-handle", how);
+      await sleep(60);
+      const st = await cdp.eval(`(() => { const a = document.activeElement; const td = a?.closest?.("th, td");
+        return { menu: !document.querySelector(".ef-table-menu").hidden, cell: td ? [Number(td.dataset.row), Number(td.dataset.col)] : null,
+          disabled: [...document.querySelectorAll(".ef-table-menu button:disabled")].map((b) => b.dataset.action) }; })()`);
+      if (!st.menu) { fail("menu did not open"); continue; }
+      if (JSON.stringify(st.cell) !== JSON.stringify([row, col])) { fail("cell input lost focus when the handle was tapped: " + JSON.stringify(st.cell)); continue; }
+      const wantOff = row === 0 ? ["rowAbove", "rowDelete"] : [];
+      if (JSON.stringify(st.disabled) !== JSON.stringify(wantOff)) { fail("disabled items " + JSON.stringify(st.disabled)); continue; }
+      await tapElement(cdp, `.ef-table-menu [data-action="${action}"]`, how);
+      await sleep(120);
+      const after = await cdp.eval(`(() => { const a = document.activeElement; const td = a?.closest?.("th, td");
+        return { doc: __ef.editor.getDoc(), cell: td ? [Number(td.dataset.row), Number(td.dataset.col)] : null }; })()`);
+      if (after.doc !== expectFor(fn())) { fail(`document\n  expected ${JSON.stringify(expectFor(fn()))}\n  got      ${JSON.stringify(after.doc)}`); continue; }
+      if (JSON.stringify(after.cell) !== JSON.stringify([fr, fc])) { fail("focus after the action " + JSON.stringify(after.cell)); continue; }
+      await cdp.send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: "z", code: "KeyZ", windowsVirtualKeyCode: 90, modifiers: 2 });
+      await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "z", code: "KeyZ", windowsVirtualKeyCode: 90, modifiers: 2 });
+      await sleep(60);
+      if (await cdp.eval("__ef.editor.getDoc()") !== DOC) fail("one undo did not restore the text");
+    } catch (e) { fail(e.message); }
+  }
+  // Ctrl+Enter in a cell adds a row below and moves into it.
+  await cdp.eval(`(() => { __ef.load("basic"); __ef.editor.setDoc(${JSON.stringify(DOC)}); })()`);
+  await sleep(50);
+  await tapElement(cdp, `.ef-table [data-row="1"][data-col="0"] .ef-cell-view`, "mouse");
+  await cdp.send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, modifiers: 2 });
+  await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, modifiers: 2 });
+  await sleep(120);
+  const ce = await cdp.eval(`(() => { const td = document.activeElement?.closest?.("th, td"); return { doc: __ef.editor.getDoc(), cell: td ? [Number(td.dataset.row), Number(td.dataset.col)] : null }; })()`);
+  if (ce.doc !== expectFor(insertRow(tableLines, 1, true)) || JSON.stringify(ce.cell) !== "[2,0]") { bad++; console.log("FAIL table Ctrl+Enter: " + JSON.stringify(ce)); }
+  // The handle and menu disappear when no cell is focused.
+  await cdp.eval(`(() => { const a = document.activeElement; if (a?.blur) a.blur(); })()`);
+  const gone = await cdp.eval(`[...document.querySelectorAll(".ef-table-handle, .ef-table-menu")].every((e) => e.hidden)`);
+  if (!gone) { bad++; console.log("FAIL table menu: handle/menu visible without a focused cell"); }
+  if (problems.length > before) { bad++; for (const p of problems.slice(before)) console.log("  " + p); }
+  console.log(`${bad ? "FAIL" : "PASS"} table menu (${cases.length} actions, mouse + touch)`);
+  return bad ? 1 : 0;
+}
+
 async function main() {
   const files = process.argv.slice(2).length ? process.argv.slice(2) : readdirSync(join(root, "traces")).filter((f) => f.endsWith(".json")).map((f) => join(root, "traces", f));
   const chrome = findChrome();
@@ -136,6 +222,7 @@ async function main() {
     })()`);
     console.log(`lab: tables=${info.tables} checkboxes=${info.boxes} roundTrip=${info.same} rawSyntaxVisible=${JSON.stringify(info.raw)} errors=${problems.length}`);
     if (!info.same || !info.tables || info.raw.length || problems.length) { failed++; for (const p of problems) console.log("  " + p); }
+    failed += await tableMenuCheck(cdp, problems);
 
     for (const file of files) {
       const t = JSON.parse(readFileSync(file, "utf8"));

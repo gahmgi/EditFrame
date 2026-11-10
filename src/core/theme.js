@@ -3,7 +3,7 @@ import { EditorView } from "@codemirror/view";
 // Base styles. Colors come from CSS custom properties so a host app can restyle without overriding rules:
 //   --ef-muted   revealed markers, bullets, done tasks      --ef-accent  links, checkbox
 //   --ef-line    table borders, rules, quote bar             --ef-code-bg inline code / code block background
-//   --ef-chip-bg preset chips (e.g. WorkNote note links)
+//   --ef-chip-bg preset chips (e.g. WorkNote note links)    --ef-menu-bg table menu, 「열기 ↗」 button
 // Marker reveal keeps the same font size as the text (a size change would make the line jump).
 const v = (name, light, dark) => ({ light: `var(${name}, ${light})`, dark: `var(${name}, ${dark})` });
 const C = {
@@ -12,6 +12,7 @@ const C = {
   line: v("--ef-line", "#d9dbd6", "#3c454f"),
   codeBg: v("--ef-code-bg", "rgba(127,127,127,.12)", "rgba(160,160,160,.16)"),
   chipBg: v("--ef-chip-bg", "rgba(47,95,138,.10)", "rgba(143,185,223,.16)"),
+  menuBg: v("--ef-menu-bg", "#ffffff", "#2a3038"),
 };
 const both = (mode) => ({
   [`&${mode} .ef-mark, &${mode} .ef-bullet, &${mode} .ef-done, &${mode} .ef-ol .ef-mark`]: { color: C.muted[mode] },
@@ -22,6 +23,9 @@ const both = (mode) => ({
   [`&${mode} .ef-quote`]: { borderLeftColor: C.line[mode], color: C.muted[mode] },
   [`&${mode} .ef-code-inline, &${mode} .ef-codeblock`]: { backgroundColor: C.codeBg[mode] },
   [`&${mode} .ef-wnlink`]: { backgroundColor: C.chipBg[mode], color: C.accent[mode] },
+  [`&${mode} .ef-table-handle > span, &${mode} .ef-open`]: { backgroundColor: C.menuBg[mode], borderColor: C.line[mode], color: C.accent[mode] },
+  [`&${mode} .ef-table-menu`]: { backgroundColor: C.menuBg[mode], borderColor: C.line[mode] },
+  [`&${mode} .ef-table-menu button:not(:disabled):hover`]: { backgroundColor: C.chipBg[mode] },
 });
 
 export const editFrameTheme = EditorView.baseTheme({
@@ -43,7 +47,15 @@ export const editFrameTheme = EditorView.baseTheme({
   ".ef-lead": { display: "inline-block", width: "1.6em", textIndent: "0", textAlign: "left", verticalAlign: "baseline" },
   ".ef-box input": { margin: "0", width: "1.15em", height: "1.15em", verticalAlign: "-.18em", cursor: "pointer" },
   ".ef-wnlink": { borderRadius: "6px", padding: "0 .3em", textDecoration: "none" },
-  ".ef-table": { overflowX: "auto", padding: ".3em 0" },
+  ".ef-table": { position: "relative", padding: ".3em 0" },
+  ".ef-table-scroll": { overflowX: "auto" },
+  // Row/column handle: 32px touch target, smaller visible dot. Shown only while a cell is being edited.
+  ".ef-table-handle": { position: "absolute", zIndex: "2", width: "32px", height: "32px", margin: "-16px 0 0 -16px", padding: "0", border: "0", background: "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", touchAction: "manipulation", color: "inherit", font: "inherit" },
+  ".ef-table-handle > span": { display: "block", width: "22px", height: "22px", lineHeight: "20px", fontSize: "14px", textAlign: "center", borderRadius: "50%", border: "1px solid", boxSizing: "border-box" },
+  ".ef-table-menu": { position: "fixed", zIndex: "30", display: "flex", flexDirection: "column", minWidth: "9.5em", padding: "4px", borderRadius: "8px", border: "1px solid", boxShadow: "0 4px 14px rgba(0,0,0,.14)" },
+  ".ef-table-menu button": { minHeight: "38px", padding: "0 10px", border: "0", borderRadius: "6px", background: "transparent", color: "inherit", font: "inherit", fontSize: "15px", textAlign: "left", cursor: "pointer", touchAction: "manipulation" },
+  ".ef-table-menu button:disabled": { opacity: ".38", cursor: "default" },
+  ".ef-table-handle[hidden], .ef-table-menu[hidden]": { display: "none" },
   ".ef-table table": { borderCollapse: "collapse", minWidth: "50%" },
   ".ef-table th": { fontWeight: "600" },
   ".ef-table th, .ef-table td": { border: "1px solid", padding: ".25em .6em", minWidth: "3em", verticalAlign: "top", textAlign: "left", cursor: "text" },
