@@ -17,8 +17,8 @@
 import { EditorState, EditorSelection, Compartment } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { history, historyKeymap, defaultKeymap } from "@codemirror/commands";
-import { efConfig } from "./core/config.js";
-import { preview, compositionWatch, clickHandlers, toggleTaskAt } from "./core/preview.js";
+import { efConfig, coarsePointer } from "./core/config.js";
+import { preview, compositionWatch, clickHandlers, toggleTaskAt, threeFingerUndo } from "./core/preview.js";
 import { editKeys } from "./core/keys.js";
 import { editFrameTheme } from "./core/theme.js";
 
@@ -39,7 +39,7 @@ function lineSeparatorFor(doc) {
 /**
  * Build an EditorState with every EditFrame extension.
  * @param {string} doc
- * @param {object} [options] same as createEditor (presets, onLinkClick, readOnly, raw, ariaLabel, extensions, onChange)
+ * @param {object} [options] same as createEditor (presets, onLinkClick, openButton, readOnly, raw, ariaLabel, extensions, onChange)
  */
 export function createState(doc, options = {}, slots = { preview: new Compartment(), readOnly: new Compartment() }) {
   const text = String(doc ?? "");
@@ -53,9 +53,10 @@ export function createState(doc, options = {}, slots = { preview: new Compartmen
       editKeys,
       keymap.of([...defaultKeymap, ...historyKeymap]),
       EditorView.lineWrapping,
+      threeFingerUndo,
       EditorView.contentAttributes.of({ spellcheck: "false", autocorrect: "off", autocapitalize: "off", "aria-label": options.ariaLabel || "본문" }),
       // The host's own link handler runs before preset handlers.
-      efConfig.of({ onLinkClick: options.onLinkClick }),
+      efConfig.of({ onLinkClick: options.onLinkClick, openButton: typeof options.openButton === "boolean" ? options.openButton : coarsePointer() }),
       ...presets.map((p) => efConfig.of(p)),
       slots.preview.of(options.raw ? [] : LIVE),
       slots.readOnly.of(readOnlyExt(!!options.readOnly)),
@@ -84,7 +85,9 @@ export function createState(doc, options = {}, slots = { preview: new Compartmen
  * @param {boolean}  [options.raw=false]     start in raw-markdown mode (no live preview)
  * @param {(info: { type: string, href: string|null, id: string|null, event: MouseEvent }) => boolean|void} [options.onLinkClick]
  *        Ctrl/⌘-click on a link (any click when read-only). Return false to fall back to the default
- *        (http/https opens in a new tab).
+ *        (http/https opens in a new tab). The 「열기 ↗」 button goes through the same handler.
+ * @param {boolean}  [options.openButton]    show a small 「열기 ↗」 button next to the link or note chip the
+ *        caret is in (never while typing or composing). Default: on for touch screens (pointer: coarse).
  * @param {string}   [options.ariaLabel="본문"]
  * @param {object[]} [options.extensions=[]] extra CodeMirror extensions (build them with the re-exported
  *        EditorView / EditorState)

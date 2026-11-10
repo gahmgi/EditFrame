@@ -13,6 +13,7 @@ const corpus = [BASIC, WORKNOTE, ...EDGE];
 const optionSets = [
   { name: "core", options: {} },
   { name: "worknote", options: { presets: [worknotePreset()] } },
+  { name: "openButton", options: { presets: [worknotePreset()], openButton: true } },
   { name: "readOnly", options: { presets: [worknotePreset()], readOnly: true } },
   { name: "raw", options: { raw: true } },
 ];

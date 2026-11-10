@@ -358,7 +358,7 @@ function toggleMenu(view, wrap) {
 
 // A tap that must not move focus: touchend is cancelled (no synthetic mouse events, no blur of the cell
 // input, no click), mousedown is cancelled for the mouse, and the action runs from touchend or click.
-function onTap(el, act) {
+export function onTap(el, act) {
   let start = null;
   el.addEventListener("mousedown", (e) => e.preventDefault());
   el.addEventListener("touchstart", (e) => { const t = e.touches[0]; start = t && { x: t.clientX, y: t.clientY }; }, { passive: true });

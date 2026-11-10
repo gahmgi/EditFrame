@@ -68,7 +68,7 @@ editor.destroy();
 
 | 내보내는 것 | 설명 |
 | --- | --- |
-| `createEditor(parent, options)` | 편집기를 만든다. 옵션: `doc`, `presets`, `onChange(doc, {composing})`, `readOnly`, `raw`, `onLinkClick(info)`, `ariaLabel`, `extensions` |
+| `createEditor(parent, options)` | 편집기를 만든다. 옵션: `doc`, `presets`, `onChange(doc, {composing})`, `readOnly`, `raw`, `onLinkClick(info)`, `openButton`, `ariaLabel`, `extensions` |
 | `createState(doc, options)` | 같은 구성의 `EditorState` (뷰 없이 — 테스트용, 직접 `EditorView` 를 만드는 앱용) |
 | `worknotePreset(options)` | WorkNote 전용 문법 프리셋 |
 | `toggleTaskAt(state, pos)` | 그 줄의 체크박스 한 글자를 바꾸는 트랜잭션 스펙 |
@@ -76,6 +76,8 @@ editor.destroy();
 | `VERSION` | 버전 문자열 |
 
 링크는 Ctrl/⌘+클릭(읽기 전용이면 그냥 클릭)으로 엽니다. 그냥 누르면 커서가 놓여 바로 고칠 수 있습니다.
+터치 화면에서는 커서가 링크·노트 칩 안에 있을 때 그 끝에 작은 「열기 ↗」 단추가 뜹니다(입력·조합 중에는 뜨지 않음,
+원문에는 아무것도 넣지 않음). `openButton: true/false` 로 켜고 끌 수 있고, 기본값은 터치 화면(`pointer: coarse`)에서만 켜짐입니다.
 
 ### 프리셋 만들기
 

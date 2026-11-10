@@ -5,7 +5,7 @@ import { StateField, StateEffect } from "@codemirror/state";
 import { EditorView, Decoration, WidgetType, ViewPlugin } from "@codemirror/view";
 import { isFence, isHr, touches, revealsPrefix, scanBlock, toggledCheckChar, shortUrl } from "./marks.js";
 import { tableAt } from "./table-model.js";
-import { TableWidget, classFor, setLinkAttrs } from "./table.js";
+import { TableWidget, classFor, setLinkAttrs, onTap } from "./table.js";
 import { efConfig } from "./config.js";
 
 // ---------------------------------------------------------------- widgets
@@ -62,6 +62,25 @@ class UrlWidget extends WidgetType {
   ignoreEvent() { return false; }
 }
 
+// 「열기 ↗」 after a link or note chip that holds the caret (touch screens have no Ctrl/⌘-click). It is
+// drawing only — nothing is inserted into the text — and taps on it never move the caret or the focus.
+class OpenWidget extends WidgetType {
+  constructor(info) { super(); this.info = info; this.open = true; }
+  eq(o) { return o.info.type === this.info.type && o.info.href === this.info.href && o.info.id === this.info.id; }
+  toDOM(view) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "ef-open";
+    b.tabIndex = -1;
+    b.contentEditable = "false";
+    b.textContent = "열기 ↗";
+    b.setAttribute("aria-label", this.info.id ? "노트 열기" : "링크 열기");
+    onTap(b, (e) => openLink(view, { ...this.info, event: e }));
+    return b;
+  }
+  ignoreEvent() { return true; }
+}
+
 // ---------------------------------------------------------------- decorations
 
 const HIDE = Decoration.replace({});
@@ -97,6 +116,9 @@ function build(state) {
   const scan = state.facet(efConfig).scan;
   const readOnly = state.readOnly;
   const sels = state.selection.ranges.map((r) => ({ from: r.from, to: r.to }));
+  // 「열기 ↗」 shows only for a bare caret strictly inside a link (not at its edge, where typing continues).
+  // build() never runs while frozen (composing / hot), so the button never appears during text entry.
+  const caret = !readOnly && state.facet(efConfig).openButton && sels.length === 1 && sels[0].from === sels[0].to ? sels[0].from : -1;
   const out = [];
   const atomic = [];
   const tables = [];
@@ -195,6 +217,11 @@ function build(state) {
       if (body[1] > body[0]) out.push(markFor(el).range(body[0], body[1]));
       for (const [a, b] of el.hide) {
         if (b > a) out.push((shown ? MUTED : HIDE).range(line.from + a, line.from + b));
+      }
+      if (caret >= 0 && (el.href || el.id)) {
+        const inside = from < caret && caret < to;
+        key.push(inside ? 1 : 0);
+        if (inside) out.push(Decoration.widget({ widget: new OpenWidget({ type: el.type, href: el.href || null, id: el.id || null }), side: 1 }).range(to));
       }
     }
   }
@@ -322,6 +349,12 @@ function defaultOpen(info) {
   if (info.href && /^https?:\/\//i.test(info.href)) window.open(info.href, "_blank", "noopener,noreferrer");
 }
 
+// Host / preset link handlers first; the default (http/https in a new tab) when none takes it.
+function openLink(view, info) {
+  const handled = view.state.facet(efConfig).linkHandlers.some((h) => h(info) !== false);
+  if (!handled) defaultOpen(info);
+}
+
 // Checkbox: a click flips one character (undoable) and does not move the caret.
 // Links: Ctrl/⌘-click opens; a plain click places the caret so the text can be edited right away.
 export const clickHandlers = EditorView.domEventHandlers({
@@ -340,12 +373,22 @@ export const clickHandlers = EditorView.domEventHandlers({
     }
     const a = e.target.closest?.("[data-ef-type]");
     if (a && (e.ctrlKey || e.metaKey || view.state.readOnly)) {
-      const info = { type: a.getAttribute("data-ef-type"), href: a.getAttribute("data-ef-href") || null, id: a.getAttribute("data-ef-id") || null, event: e };
-      const handled = view.state.facet(efConfig).linkHandlers.some((h) => h(info) !== false);
-      if (!handled) defaultOpen(info);
+      openLink(view, { type: a.getAttribute("data-ef-type"), href: a.getAttribute("data-ef-href") || null, id: a.getAttribute("data-ef-id") || null, event: e });
       e.preventDefault();
       return true;
     }
     return false;
   },
+});
+
+// iOS: a three-finger swipe is undo, but the page scrolls along and the gesture often fails. While three or
+// more fingers are down, the move is not allowed to scroll. One- and two-finger moves (scroll, pinch zoom)
+// are never touched. Only a real device can show whether this is enough (lab checklist).
+export const threeFingerUndo = ViewPlugin.fromClass(class {
+  constructor(view) {
+    this.dom = view.dom;
+    this.stop = (e) => { if (e.touches.length >= 3 && e.cancelable) e.preventDefault(); };
+    this.dom.addEventListener("touchmove", this.stop, { passive: false });
+  }
+  destroy() { this.dom.removeEventListener("touchmove", this.stop, { passive: false }); }
 });

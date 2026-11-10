@@ -47,6 +47,9 @@ export const editFrameTheme = EditorView.baseTheme({
   ".ef-lead": { display: "inline-block", width: "1.6em", textIndent: "0", textAlign: "left", verticalAlign: "baseline" },
   ".ef-box input": { margin: "0", width: "1.15em", height: "1.15em", verticalAlign: "-.18em", cursor: "pointer" },
   ".ef-wnlink": { borderRadius: "6px", padding: "0 .3em", textDecoration: "none" },
+  // 「열기 ↗」: small enough not to change the line height; the ::before area makes the touch target larger.
+  ".ef-open": { position: "relative", display: "inline-block", margin: "0 0 0 .35em", padding: "0 .55em", border: "1px solid", borderRadius: "999px", font: "inherit", fontSize: ".78em", lineHeight: "1.45", verticalAlign: ".08em", textIndent: "0", cursor: "pointer", touchAction: "manipulation", userSelect: "none", WebkitUserSelect: "none" },
+  ".ef-open::before": { content: '""', position: "absolute", inset: "-9px -6px" },
   ".ef-table": { position: "relative", padding: ".3em 0" },
   ".ef-table-scroll": { overflowX: "auto" },
   // Row/column handle: 32px touch target, smaller visible dot. Shown only while a cell is being edited.

@@ -185,6 +185,41 @@ async function tableMenuCheck(cdp, problems) {
   return bad ? 1 : 0;
 }
 
+// 「열기 ↗」 under a coarse pointer (touch emulation): appears for a caret inside a note chip or link, a touch
+// tap reaches onOpenNote / opens the URL without changing the text, and it goes away when the caret leaves.
+async function openButtonCheck(cdp, problems) {
+  const before = problems.length;
+  let bad = 0;
+  const fail = (msg) => { bad++; console.log("FAIL open button: " + msg); };
+  await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+  try {
+    await cdp.eval(`(() => { window.__opened = []; window.open = (u) => { __opened.push(u); return null; }; __ef.load("worknote"); })()`);
+    const doc = await cdp.eval("__ef.editor.getDoc()");
+    for (const [label, pos, want] of [
+      ["note chip", doc.indexOf("[[독서 메모") + 4, "노트 열기 요청"],
+      ["link", doc.indexOf("https://example.com/notes") + 8, "https://example.com/notes"],
+    ]) {
+      await cdp.eval(`(() => { const v = __ef.editor.view; v.focus(); v.dispatch({ selection: { anchor: ${pos} } }); })()`);
+      await sleep(80);
+      if (!(await cdp.eval(`document.querySelectorAll(".ef-open").length === 1`))) { fail(`${label}: button not shown`); continue; }
+      await tapElement(cdp, ".ef-open", "touch");
+      await sleep(80);
+      const r = await cdp.eval(`({ status: document.getElementById("status").textContent, opened: __opened.slice(), head: __ef.editor.view.state.selection.main.head, same: __ef.editor.getDoc() === __ef.SAMPLES.worknote.doc })`);
+      if (!(r.status.includes(want) || r.opened.includes(want))) fail(`${label}: tap did not open (${JSON.stringify(r)})`);
+      if (r.head !== pos) fail(`${label}: the tap moved the caret`);
+      if (!r.same) fail(`${label}: the text changed`);
+    }
+    await cdp.eval(`__ef.editor.view.dispatch({ selection: { anchor: 0 } })`);
+    await sleep(50);
+    if (await cdp.eval(`document.querySelectorAll(".ef-open").length`)) fail("still shown after the caret left");
+  } finally {
+    await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: false });
+  }
+  if (problems.length > before) { bad++; for (const p of problems.slice(before)) console.log("  " + p); }
+  console.log(`${bad ? "FAIL" : "PASS"} open button (touch emulation: note chip + link)`);
+  return bad ? 1 : 0;
+}
+
 async function main() {
   const files = process.argv.slice(2).length ? process.argv.slice(2) : readdirSync(join(root, "traces")).filter((f) => f.endsWith(".json")).map((f) => join(root, "traces", f));
   const chrome = findChrome();
@@ -223,6 +258,7 @@ async function main() {
     console.log(`lab: tables=${info.tables} checkboxes=${info.boxes} roundTrip=${info.same} rawSyntaxVisible=${JSON.stringify(info.raw)} errors=${problems.length}`);
     if (!info.same || !info.tables || info.raw.length || problems.length) { failed++; for (const p of problems) console.log("  " + p); }
     failed += await tableMenuCheck(cdp, problems);
+    failed += await openButtonCheck(cdp, problems);
 
     for (const file of files) {
       const t = JSON.parse(readFileSync(file, "utf8"));
