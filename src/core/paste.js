@@ -13,35 +13,37 @@
 // Merged cells are not kept (GFM has no syntax for them): a rowspan repeats the value in every covered row; a
 // colspan puts the value in the first cell and leaves the covered cells empty.
 
-import { escapeCell } from "./table-model.js";
-
 export const browserParse = (html) => new DOMParser().parseFromString(html, "text/html");
 
 const SKIP = new Set(["STYLE", "SCRIPT", "TEMPLATE", "HEAD", "TITLE"]);
-const BREAK = new Set(["BR", "P", "DIV", "LI", "TR", "H1", "H2", "H3", "H4", "H5", "H6"]);
+const BREAK = new Set(["BR", "P", "DIV", "LI", "TR", "TD", "TH", "H1", "H2", "H3", "H4", "H5", "H6"]);
 const name = (n) => String(n.nodeName || "").toUpperCase();
 
-// A cell's text on one line: whitespace and line breaks collapse to single spaces, `|` becomes `\|`.
+// A cell's text on one line: whitespace and line breaks collapse to single spaces; every `|` is escaped, and so
+// is any backslash right before it, so the source text survives (`a|b` → `a\|b`, `a\|b` → `a\\\|b`).
 export function cleanCell(text) {
-  return escapeCell(String(text || "").replace(/[\s ]+/g, " ").trim());
+  return String(text || "").replace(/\s+/g, " ").trim().replace(/(\\*)\|/g, (m, bs) => bs.replace(/\\/g, "\\\\") + "\\|");
 }
 
-function textOf(node) {
+// Visible text of a node (nothing from <style>, <script>, comments; `skip` left out); block boundaries and
+// cells become spaces.
+export function nodeText(node, skip = null) {
+  if (node === skip) return "";
   if (node.nodeType === 3) return node.nodeValue || "";
+  if (node.nodeType === 9 || node.nodeType === 11) { let d = ""; for (const c of node.childNodes || []) d += nodeText(c, skip); return d; }
   if (node.nodeType !== 1 || SKIP.has(name(node))) return "";
   let s = "";
-  for (const c of node.childNodes || []) s += textOf(c);
+  for (const c of node.childNodes || []) s += nodeText(c, skip);
   return BREAK.has(name(node)) ? ` ${s} ` : s;
 }
 
-function findTable(node) {
-  if (node.nodeType === 1 && name(node) === "TABLE") return node;
-  for (const c of node.childNodes || []) {
-    const t = findTable(c);
-    if (t) return t;
-  }
-  return null;
+// Tables not nested inside another table.
+function outerTables(node, out = []) {
+  if (node.nodeType === 1 && name(node) === "TABLE") { out.push(node); return out; }
+  for (const c of node.childNodes || []) outerTables(c, out);
+  return out;
 }
+const hasTable = (node) => Array.from(node.childNodes || []).some((c) => c.nodeType === 1 && (name(c) === "TABLE" || hasTable(c)));
 
 // Rows of this table only (not of a table nested in a cell).
 function rowsOf(table) {
@@ -71,12 +73,17 @@ export function gridToGfm(grid) {
   return [rows[0], line(Array(cols).fill("---")), ...rows.slice(1)].join("\n");
 }
 
+// Only a clipboard that is just one table converts. Text around it (a copied paragraph and a table), a second
+// table, or a table holding tables (page layout rather than data) would lose content, so those return null and
+// the default paste runs.
 export function tableFromHtml(html, parse = browserParse) {
   if (!html || !/<table[\s>]/i.test(html)) return null;
   let root;
   try { root = parse(html); } catch { return null; }
-  const table = root && findTable(root);
-  if (!table) return null;
+  const tables = root ? outerTables(root) : [];
+  if (tables.length !== 1) return null;
+  const table = tables[0];
+  if (nodeText(root, table).trim() || hasTable(table)) return null;
   const trs = rowsOf(table);
   const grid = trs.map(() => []);
   trs.forEach((tr, r) => {
@@ -86,7 +93,7 @@ export function tableFromHtml(html, parse = browserParse) {
       if (n !== "TD" && n !== "TH") continue;
       while (grid[r][c] !== undefined) c++;
       const rs = span(cell, "rowspan", trs.length - r), cs = span(cell, "colspan", 100);
-      const text = cleanCell(textOf(cell));
+      const text = cleanCell(nodeText(cell));
       for (let dr = 0; dr < rs; dr++) for (let dc = 0; dc < cs; dc++) grid[r + dr][c + dc] = dc === 0 ? text : "";
       c += cs;
     }

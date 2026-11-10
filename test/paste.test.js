@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { tableFromHtml, tableFromTsv, tableFromClipboard, parseTsv, placeTable, singleLine } from "../src/core/paste.js";
+import { tableFromHtml, tableFromTsv, tableFromClipboard, parseTsv, placeTable, singleLine, nodeText, cleanCell } from "../src/core/paste.js";
 import { tableAt, cellEdit } from "../src/core/table-model.js";
 
 // Pasting tables from Excel, Numbers, Sheets or a web page. The converters get a DOM-like tree; in the
@@ -28,6 +28,17 @@ function parse(html) {
     top.childNodes.push(node);
     if (!VOID.has(tag) && !m[3].trim().endsWith("/")) stack.push(node);
   }
+  // Shaped like the browser's result: a Document (nodeType 9) whose childNodes are NodeLists — indexable and
+  // iterable, but without array methods (.some / .map), which the converter must not rely on.
+  root.nodeType = 9;
+  const toNodeList = (n) => {
+    const kids = n.childNodes || [];
+    kids.forEach(toNodeList);
+    const list = { length: kids.length, [Symbol.iterator]: () => kids[Symbol.iterator]() };
+    kids.forEach((k, i) => { list[i] = k; });
+    n.childNodes = list;
+  };
+  toNodeList(root);
   return root;
 }
 const rowsOf = (gfm) => tableAt(gfm.split("\n"), 0).rows;
@@ -65,11 +76,40 @@ test("merged cells: rowspan repeats the value per row; colspan fills the first c
   ]);
 });
 
-test("web tables: thead/tbody/tfoot rows in order, nested tables do not add rows, ragged rows padded", () => {
-  const html = `<p>앞 글</p><table><thead><tr><th>이름</th><th>값</th></tr></thead>
-    <tbody><tr><td>가 <b>굵게</b></td><td><table><tr><td>안쪽</td></tr></table></td></tr>
-    <tr><td>짧은 행</td></tr></tbody><tfoot><tr><td>합계</td><td>2</td></tr></tfoot></table>`;
-  assert.deepEqual(rowsOf(tableFromHtml(html, parse)), [["이름", "값"], ["가 굵게", "안쪽"], ["짧은 행", ""], ["합계", "2"]]);
+test("web tables: thead/tbody/tfoot rows in order, ragged rows padded", () => {
+  const html = `<html><body>
+    <table><thead><tr><th>이름</th><th>값</th></tr></thead>
+    <tbody><tr><td>가 <b>굵게</b></td><td>하나</td></tr>
+    <tr><td>짧은 행</td></tr></tbody><tfoot><tr><td>합계</td><td>2</td></tr></tfoot></table>
+  </body></html>`;
+  assert.deepEqual(rowsOf(tableFromHtml(html, parse)), [["이름", "값"], ["가 굵게", "하나"], ["짧은 행", ""], ["합계", "2"]]);
+});
+
+test("HTML with content outside the one table is not converted (the default paste keeps everything)", () => {
+  const T = "<table><tr><td>a</td><td>b</td></tr><tr><td>1</td><td>2</td></tr></table>";
+  assert.ok(tableFromHtml(T, parse), "the bare table converts");
+  assert.equal(tableFromHtml(`<p>앞 문단</p>${T}<p>뒤 문단</p>`, parse), null, "paragraph + table + paragraph");
+  assert.equal(tableFromHtml(`${T}뒤에 남은 글`, parse), null, "loose text after the table");
+  assert.equal(tableFromHtml(T + T, parse), null, "two tables");
+  // A layout table (a table holding a table) is page structure, not data.
+  const layout = `<table><tr><td>왼쪽 칸의 긴 글</td><td><table><tr><td>x</td><td>y</td></tr><tr><td>1</td><td>2</td></tr></table></td></tr><tr><td>아래</td><td>글</td></tr></table>`;
+  assert.equal(tableFromHtml(layout, parse), null);
+  // Excel's fragment comments and head/style are not "content outside".
+  assert.ok(tableFromHtml(`<html><head><style>td{}</style><title>t</title></head><body><!--StartFragment-->${T}<!--EndFragment--></body></html>`, parse));
+});
+
+test("cell text: block and cell boundaries become spaces; backslashes before a pipe survive", () => {
+  const td = parse("<td><div>x</div><div>y</div></td>").childNodes[0];
+  assert.equal(nodeText(td).replace(/\s+/g, " ").trim(), "x y");
+  const cells = parse("<tr><th>x</th><td>y</td></tr>").childNodes[0];
+  assert.equal(nodeText(cells).replace(/\s+/g, " ").trim(), "x y", "TD/TH are boundaries, not glued (`xy`)");
+  assert.equal(cleanCell("a|b"), "a\\|b");
+  assert.equal(cleanCell("a\\|b"), "a\\\\\\|b", "a source `a\\|b` stays `a\\|b` on screen");
+  assert.equal(cleanCell("c:\\dir"), "c:\\dir", "backslashes not before a pipe are left alone");
+  const gfm = tableFromHtml("<table><tr><td>a\\|b</td><td>c|d</td></tr><tr><td>1</td><td>2</td></tr></table>", parse);
+  const row = gfm.split("\n")[0];
+  assert.equal(row, "| a\\\\\\|b | c\\|d |");
+  assert.equal(tableAt(gfm.split("\n"), 0).cols, 2, "escaped pipes do not split cells");
 });
 
 test("not a table: one cell, one column, no <table>", () => {
