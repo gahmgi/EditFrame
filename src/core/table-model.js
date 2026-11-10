@@ -148,18 +148,21 @@ const lineStarts = (lines) => {
 };
 
 // Insert an empty body row above/below logical row `row` (0 = header; nothing goes above the header).
-// Returns { changes, row } where `row` is the new row's logical index, or null.
+// Returns { changes, row } where `row` is the new row's logical index, or null. The new row gets the neighbour
+// row's leading whitespace (a table inside a list item stays inside it). Line breaks are written as "\n" —
+// the editor converts them to the document's own separator.
 export function insertRow(lines, row, below) {
   const cols = splitCells(lines[0]).length;
   if (!cols || row < 0 || (!below && row === 0)) return null;
   const k = row === 0 ? 1 : rowLine(row);
   if (k >= lines.length) return null;
   const starts = lineStarts(lines);
+  const fresh = lines[k].match(/^[ \t]*/)[0] + emptyRow(cols);
   if (below) {
     const at = starts[k] + lines[k].length;
-    return { changes: [{ from: at, to: at, insert: "\n" + emptyRow(cols) }], row: row + 1 };
+    return { changes: [{ from: at, to: at, insert: "\n" + fresh }], row: row + 1 };
   }
-  return { changes: [{ from: starts[k], to: starts[k], insert: emptyRow(cols) + "\n" }], row };
+  return { changes: [{ from: starts[k], to: starts[k], insert: fresh + "\n" }], row };
 }
 
 // Delete body row `row` (≥ 1). The header cannot be deleted; the last body row can (the header stays).

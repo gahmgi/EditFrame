@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EditorSelection } from "@codemirror/state";
 import { createState, worknotePreset } from "../src/index.js";
-import { preview } from "../src/core/preview.js";
+import { preview, refresh } from "../src/core/preview.js";
 
 // 「열기 ↗」 (touch screens): shown after the link or note chip that holds the caret, never while typing or
 // composing, never at the link's edge (where typing continues), never in the text.
@@ -54,4 +54,13 @@ test("typing inside a link: no button appears while hot; it comes back only afte
   s = s.update({ changes: { from: s.selection.main.head, insert: "ㄷ" }, selection: EditorSelection.cursor(s.selection.main.head + 1), userEvent: "input.type.compose" }).state;
   assert.equal(s.field(preview).frozen, "compose");
   assert.equal(buttons(s).length, 0, "not shown while composing");
+  // The idle refresh (what compositionWatch dispatches once input settles) brings it back, caret unmoved.
+  const head = s.selection.main.head;
+  s = s.update({ effects: refresh.of(null) }).state;
+  assert.equal(s.field(preview).frozen, false);
+  assert.equal(s.selection.main.head, head);
+  const after = buttons(s);
+  assert.equal(after.length, 1, "shown again after the idle refresh");
+  assert.equal(after[0].type, "mdlink");
+  assert.equal(after[0].at, s.sliceDoc().indexOf(" 뒤"), "at the end of the (now longer) link");
 });

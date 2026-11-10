@@ -237,7 +237,7 @@ function build(state) {
 export const HOT_MS = 400;
 
 // Recompute the decorations deferred while composing or typing.
-const refresh = StateEffect.define();
+export const refresh = StateEffect.define();
 // Composition started (from the DOM event). Some paths deliver composing input without the
 // `input.type.compose` user event; this flag makes the guard independent of that tag.
 const composeStart = StateEffect.define();
@@ -382,13 +382,30 @@ export const clickHandlers = EditorView.domEventHandlers({
 });
 
 // iOS: a three-finger swipe is undo, but the page scrolls along and the gesture often fails. While three or
-// more fingers are down, the move is not allowed to scroll. One- and two-finger moves (scroll, pinch zoom)
-// are never touched. Only a real device can show whether this is enough (lab checklist).
+// more fingers are down, the move is not allowed to scroll. The only permanent listeners are passive; the
+// non-passive touchmove exists only from a touchstart with 3+ fingers until those fingers lift, so one- and
+// two-finger scrolling and pinch zoom stay on the passive fast path. Only a real device can show whether this
+// is enough (lab checklist).
 export const threeFingerUndo = ViewPlugin.fromClass(class {
   constructor(view) {
     this.dom = view.dom;
+    this.armed = false;
     this.stop = (e) => { if (e.touches.length >= 3 && e.cancelable) e.preventDefault(); };
-    this.dom.addEventListener("touchmove", this.stop, { passive: false });
+    this.start = (e) => {
+      if (e.touches.length < 3 || this.armed) return;
+      this.armed = true;
+      this.dom.addEventListener("touchmove", this.stop, { passive: false });
+    };
+    this.end = (e) => { if (this.armed && e.touches.length < 3) this.disarm(); };
+    for (const [t, fn] of this.events()) this.dom.addEventListener(t, fn, { passive: true });
   }
-  destroy() { this.dom.removeEventListener("touchmove", this.stop, { passive: false }); }
+  events() { return [["touchstart", this.start], ["touchend", this.end], ["touchcancel", this.end]]; }
+  disarm() {
+    this.armed = false;
+    this.dom.removeEventListener("touchmove", this.stop, { passive: false });
+  }
+  destroy() {
+    this.disarm();
+    for (const [t, fn] of this.events()) this.dom.removeEventListener(t, fn, { passive: true });
+  }
 });

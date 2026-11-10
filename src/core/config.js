@@ -25,3 +25,8 @@ export const efConfig = Facet.define({
 export function coarsePointer() {
   try { return typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches; } catch { return false; }
 }
+
+// Mouse / trackpad (Windows, Mac). False when unknown, so touch behaviour is the default.
+export function finePointer() {
+  try { return typeof matchMedia === "function" && matchMedia("(pointer: fine)").matches; } catch { return false; }
+}

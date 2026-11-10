@@ -4,7 +4,7 @@ import { Prec, EditorSelection } from "@codemirror/state";
 import { keymap } from "@codemirror/view";
 import { continueList, scanBlock } from "./marks.js";
 import { toggleBoldSelection, toggleUnderlineSelection } from "./format.js";
-import { backspaceAfterTable } from "./table.js";
+import { backspaceAfterTable, withLineBreaks } from "./table.js";
 import { tablesOf } from "./preview.js";
 
 export const INDENT_UNIT = "  ";
@@ -70,7 +70,7 @@ export function enterList(view) {
   if (res.clear) {
     view.dispatch({ changes: { from: line.from + res.clear[0], to: line.from + res.clear[1] }, userEvent: "delete" });
   } else {
-    view.dispatch(state.replaceSelection(res.insert), { scrollIntoView: true, userEvent: "input" });
+    view.dispatch(state.replaceSelection(withLineBreaks(state, res.insert)), { scrollIntoView: true, userEvent: "input" });
   }
   return true;
 }

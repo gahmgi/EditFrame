@@ -21,7 +21,8 @@ import { EditorSelection } from "@codemirror/state";
 import { undo, redo, isolateHistory } from "@codemirror/commands";
 import { tableAt, rowLine, cellEdit, cellPads, splitCells, cellText, emptyRow, insertRow, deleteRow, insertColumn, deleteColumn } from "./table-model.js";
 import { tableFromClipboard, placeTable, singleLine, browserParse } from "./paste.js";
-import { efConfig } from "./config.js";
+import { isFence } from "./marks.js";
+import { efConfig, finePointer } from "./config.js";
 
 // Render a cell's markdown as inline-styled DOM (markers removed) using the editor's scanner.
 function renderInline(target, raw, scan) {
@@ -218,15 +219,27 @@ function leaveTable(view, td, dir) {
   if (!loc) return;
   const doc = view.state.doc;
   inputOf(td)?.blur();
+  const br = view.state.lineBreak;
   if (dir < 0) {
     if (loc.tableFrom > 0) view.dispatch({ selection: { anchor: loc.tableFrom - 1 }, scrollIntoView: true });
-    else view.dispatch({ changes: { from: 0, insert: "\n" }, selection: { anchor: 0 }, userEvent: "input" });
+    else view.dispatch({ changes: { from: 0, insert: br }, selection: { anchor: 0 }, userEvent: "input" });
   } else if (loc.tableTo < doc.length) {
     view.dispatch({ selection: { anchor: loc.tableTo + 1 }, scrollIntoView: true });
   } else {
-    view.dispatch({ changes: { from: loc.tableTo, insert: "\n" }, selection: { anchor: loc.tableTo + 1 }, userEvent: "input" });
+    view.dispatch({ changes: { from: loc.tableTo, insert: br }, selection: { anchor: loc.tableTo + 1 }, userEvent: "input" });
   }
   view.focus();
+}
+
+// Inserted text is written with "\n"; a document that keeps "\r\n" (EditorState.lineSeparator) would otherwise
+// get a bare "\n" inside a line instead of a new line. Positions are unaffected: every line break is one position.
+export const withLineBreaks = (state, s) => (state.lineBreak === "\n" ? s : s.replace(/\n/g, state.lineBreak));
+
+// A new empty body row after the table's last line (`tableTo`), indented like that line (tables in list items).
+export function appendRowSpec(state, tableTo, cols) {
+  const last = state.doc.lineAt(tableTo).text;
+  const indent = last.match(/^[ \t]*/)[0];
+  return { changes: { from: tableTo, insert: withLineBreaks(state, "\n" + indent + emptyRow(cols)) }, userEvent: "input" };
 }
 
 function appendRow(view, td, col) {
@@ -234,7 +247,7 @@ function appendRow(view, td, col) {
   const loc = locate(view, td);
   if (!loc) return;
   const rows = loc.model.rows.length;
-  view.dispatch({ changes: { from: loc.tableTo, insert: "\n" + emptyRow(loc.model.cols) }, userEvent: "input" });
+  view.dispatch(appendRowSpec(view.state, loc.tableTo, loc.model.cols));
   focusCell(view, loc.tableFrom, rows, col);
 }
 
@@ -284,19 +297,36 @@ export function disabledActions(row, cols) {
   return off;
 }
 
+// The transaction for one structural edit of the table starting at `tableFrom` whose lines are `lines`:
+// { spec, row, col } (the cell to focus afterwards) or null. One transaction, isolated in the undo history.
+export function tableEditSpec(state, tableFrom, lines, action, row, col) {
+  if (disabledActions(row, splitCells(lines[0]).length).has(action)) return null;
+  const res = ACTIONS[action]?.(lines, row, col);
+  if (!res || !res.changes.length) return null;
+  return {
+    spec: {
+      changes: res.changes.map((c) => ({ from: tableFrom + c.from, to: tableFrom + c.to, insert: withLineBreaks(state, c.insert) })),
+      userEvent: "input.table",
+      annotations: isolateHistory.of("full"),
+    },
+    row: res.row ?? row,
+    col: res.col ?? col,
+  };
+}
+
 function structural(view, td, action) {
   if (view.state.readOnly) return;
-  td._efFlush?.(); // a composition still open in the cell is committed before the widget is rebuilt
+  // Windows/Mac IMEs commit a composition properly only on blur, so with a mouse the cell input is blurred
+  // first and the new cell focused afterwards. On touch screens focus stays put (blurring would drop the iOS
+  // keyboard); a composition still open there is committed by hand before the widget is rebuilt.
+  if (finePointer()) inputOf(td)?.blur();
+  else td._efFlush?.();
   const loc = locate(view, td);
-  if (!loc || disabledActions(loc.row, loc.model.cols).has(action)) return;
-  const res = ACTIONS[action](loc.lines, loc.row, loc.col);
-  if (!res || !res.changes.length) return;
-  view.dispatch({
-    changes: res.changes.map((c) => ({ from: loc.tableFrom + c.from, to: loc.tableFrom + c.to, insert: c.insert })),
-    userEvent: "input.table",
-    annotations: isolateHistory.of("full"),
-  });
-  focusCell(view, loc.tableFrom, res.row ?? loc.row, res.col ?? loc.col);
+  if (!loc) return;
+  const edit = tableEditSpec(view.state, loc.tableFrom, loc.lines, action, loc.row, loc.col);
+  if (!edit) return;
+  view.dispatch(edit.spec);
+  focusCell(view, loc.tableFrom, edit.row, edit.col);
 }
 
 const partsOf = (td) => {
@@ -345,11 +375,20 @@ function hideHandle(td) {
 function closeMenu(p) {
   p.menu.hidden = true;
   p.handle.setAttribute("aria-expanded", "false");
-  if (p.wrap._efFollow) {
-    document.removeEventListener("scroll", p.wrap._efFollow, true);
-    window.visualViewport?.removeEventListener("resize", p.wrap._efFollow);
-    p.wrap._efFollow = null;
-  }
+  stopFollowing(p.wrap);
+}
+function stopFollowing(wrap) {
+  if (!wrap._efFollow) return;
+  document.removeEventListener("scroll", wrap._efFollow, true);
+  window.visualViewport?.removeEventListener("resize", wrap._efFollow);
+  wrap._efFollow = null;
+}
+// Everything a table widget registers outside its own DOM. Runs when CodeMirror drops the widget (structural
+// edit, scrolled out of the viewport, document replaced) and when the editor is destroyed.
+export function releaseTable(wrap) {
+  stopFollowing(wrap);
+  wrap.querySelector(".ef-table-menu")?.remove();
+  wrap._efCell = null;
 }
 function toggleMenu(view, wrap) {
   const td = wrap._efCell;
@@ -362,7 +401,8 @@ function toggleMenu(view, wrap) {
   p.handle.setAttribute("aria-expanded", "true");
   placeMenu(p);
   // Keep the fixed menu next to the handle while anything scrolls or the keyboard resizes the viewport.
-  wrap._efFollow = () => { if (wrap.isConnected && !p.menu.hidden) placeMenu(p); };
+  stopFollowing(wrap);
+  wrap._efFollow =() => { if (wrap.isConnected && !p.menu.hidden) placeMenu(p); };
   document.addEventListener("scroll", wrap._efFollow, { capture: true, passive: true });
   window.visualViewport?.addEventListener("resize", wrap._efFollow);
 }
@@ -511,6 +551,8 @@ export class TableWidget extends WidgetType {
   }
 
   ignoreEvent() { return true; }
+
+  destroy(dom) { releaseTable(dom); }
 }
 
 // Backspace on the line right after a table (caret at line start) selects the whole table instead of
@@ -529,26 +571,52 @@ export function backspaceAfterTable(tablesOf) {
   };
 }
 
+// Is `pos` inside a fenced code block (or on a fence line)? Counted from the document start, as the preview does.
+export function inFence(state, pos) {
+  const n = state.doc.lineAt(pos).number;
+  if (isFence(state.doc.line(n).text)) return true;
+  let open = false;
+  for (let k = 1; k < n; k++) if (isFence(state.doc.line(k).text)) open = !open;
+  return open;
+}
+
+// The transaction for pasting `clip` ({ html, text }) at the main selection as a GFM table, or null when the
+// paste should stay CodeMirror's default: no table on the clipboard, or the caret is in a code block.
+export function tablePasteSpec(state, clip, parse = browserParse) {
+  const r = state.selection.main, doc = state.doc;
+  if (inFence(state, r.from) || inFence(state, r.to)) return null;
+  const table = tableFromClipboard(clip, parse);
+  if (!table) return null;
+  const first = doc.lineAt(r.from), last = doc.lineAt(r.to);
+  const p = placeTable(table, {
+    before: state.sliceDoc(first.from, r.from),
+    after: state.sliceDoc(r.to, last.to),
+    prev: first.number > 1 ? doc.line(first.number - 1).text : null,
+    next: last.number < doc.lines ? doc.line(last.number + 1).text : null,
+  });
+  return { changes: { from: r.from, to: r.to, insert: withLineBreaks(state, p.text) }, selection: { anchor: r.from + p.caret }, userEvent: "input.paste", scrollIntoView: true };
+}
+
+// Ctrl/⌘+Shift+V means "paste as plain text": remember it from the keydown just before the paste event.
+const plainPasteAt = new WeakMap();
+
 // Paste in the editor body: a table from a spreadsheet or web page (HTML <table>, else TSV) becomes a GFM table
 // on its own lines. Anything else goes to CodeMirror's default paste. Cell inputs handle their own paste.
 export const pasteTables = EditorView.domEventHandlers({
+  keydown(e, view) {
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "v" || e.key === "V")) plainPasteAt.set(view, Date.now());
+    return false;
+  },
   paste(e, view) {
-    if (view.state.readOnly || e.target.closest?.(".ef-table")) return false;
+    const plain = Date.now() - (plainPasteAt.get(view) || 0) < 1000;
+    plainPasteAt.delete(view);
+    if (plain || view.state.readOnly || e.target.closest?.(".ef-table")) return false;
     const dt = e.clipboardData;
     if (!dt) return false;
-    const table = tableFromClipboard({ html: dt.getData("text/html"), text: dt.getData("text/plain") }, browserParse);
-    if (!table) return false;
+    const spec = tablePasteSpec(view.state, { html: dt.getData("text/html"), text: dt.getData("text/plain") }, browserParse);
+    if (!spec) return false;
     e.preventDefault();
-    const { state } = view;
-    const r = state.selection.main, doc = state.doc;
-    const first = doc.lineAt(r.from), last = doc.lineAt(r.to);
-    const p = placeTable(table, {
-      before: state.sliceDoc(first.from, r.from),
-      after: state.sliceDoc(r.to, last.to),
-      prev: first.number > 1 ? doc.line(first.number - 1).text : null,
-      next: last.number < doc.lines ? doc.line(last.number + 1).text : null,
-    });
-    view.dispatch({ changes: { from: r.from, to: r.to, insert: p.text }, selection: { anchor: r.from + p.caret }, userEvent: "input.paste", scrollIntoView: true });
+    view.dispatch(spec);
     return true;
   },
 });

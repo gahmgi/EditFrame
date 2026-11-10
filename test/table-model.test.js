@@ -106,3 +106,11 @@ test("tables without outer pipes keep their style where possible and stay tables
   assert.equal(run(P, deleteColumn, 0), "| b\n|:-:\n| d");
   for (const col of [0, 1]) assert.equal(model(run(P, deleteColumn, col)).cols, 1);
 });
+
+test("an inserted row copies the neighbour row's indentation (tables inside list items)", () => {
+  const I = "  | a | b |\n  | --- | --- |\n  | 1 | 2 |";
+  assert.equal(run(I, insertRow, 1, true), I + "\n  |  |  |");
+  assert.equal(run(I, insertRow, 1, false), "  | a | b |\n  | --- | --- |\n  |  |  |\n  | 1 | 2 |");
+  assert.equal(run(I, insertRow, 0, true), "  | a | b |\n  | --- | --- |\n  |  |  |\n  | 1 | 2 |");
+  assert.equal(model(run(I, insertRow, 1, true)).rows.length, 3);
+});

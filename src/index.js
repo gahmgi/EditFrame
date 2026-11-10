@@ -20,7 +20,7 @@ import { history, historyKeymap, defaultKeymap } from "@codemirror/commands";
 import { efConfig, coarsePointer } from "./core/config.js";
 import { preview, compositionWatch, clickHandlers, toggleTaskAt, threeFingerUndo } from "./core/preview.js";
 import { editKeys } from "./core/keys.js";
-import { pasteTables } from "./core/table.js";
+import { pasteTables, releaseTable } from "./core/table.js";
 import { editFrameTheme } from "./core/theme.js";
 
 export { worknotePreset } from "./presets/worknote.js";
@@ -119,6 +119,10 @@ export function createEditor(parent, options = {}) {
       view.dispatch({ effects: slots.readOnly.reconfigure(readOnlyExt(readOnly)) });
     },
     focus: () => view.focus(),
-    destroy: () => view.destroy(),
+    // Table widgets register document/viewport listeners while their menu is open: release them first.
+    destroy() {
+      for (const wrap of view.dom.querySelectorAll(".ef-table")) releaseTable(wrap);
+      view.destroy();
+    },
   };
 }
