@@ -47,7 +47,7 @@ text stays the source of truth).
 
 ## Structure
 
-- `src/core/` — generic live preview. Pure judgement in `marks.js` / `table-model.js` / `format.js`
+- `src/core/` — generic live preview. Pure judgement in `marks.js` / `table-model.js` / `format.js` / `paste.js`
   (node-testable); CodeMirror glue in `preview.js` (decorations + IME guard), `table.js` (table widget),
   `keys.js`, `theme.js`, `config.js` (preset facet).
 - `src/presets/` — product-specific syntax. WorkNote rules (`[[Title|uuid]]`, `<!-- wn-op:… -->`) live
@@ -77,9 +77,12 @@ jamo. Rules:
 3. **Native inputs for embedded editing.** Table cells are edited in a native `<input>` inside the widget
    (no CodeMirror decorations or DOM rewrites inside the cell; the OS owns the composition). The
    `updateDOM` of the table widget never touches the input being edited. Cells commit nothing while
-   composing and once at `compositionend`.
+   composing and once at `compositionend`. The «⋯» handle and menu live outside the cell; taps on them
+   cancel `mousedown`/`touchend` so the cell input keeps focus (no keyboard bounce).
 4. **Widgets next to the caret.** Checkbox/bullet widgets sit right before the first content letter. They
    are not replaced while frozen; a caret right after a line marker does not reveal it (no flip-flop).
+   「열기 ↗」 (touch) is built only by a full recompute, so never while frozen, and only for a caret strictly
+   inside a link (never at its end, where typing continues).
    Remaining risk: a `contenteditable=false` widget directly before the first composed syllable — keep it
    on the device checklist.
 5. **Keys during composition.** Keydown handlers ignore events with `isComposing` or `keyCode 229`
@@ -91,8 +94,12 @@ jamo. Rules:
 
 - `npm test` — unit + round-trip + IME guard (state level) + dist import.
 - `npm run build` — prints raw/gzip size.
-- `node scripts/replay-traces.mjs` — headless Chrome via CDP: lab loads without errors, then replays
-  `traces/*.json` (insertText, replacement, `Input.imeSetComposition`, keys, table cells).
+- `node scripts/replay-traces.mjs` — headless Chrome via CDP (`scripts/cdp.mjs`): lab loads without errors,
+  the table «⋯» menu (every item, mouse + raw touch), 「열기 ↗」 (touch emulation) and paste (real DOMParser)
+  are checked, then `traces/*.json` are replayed (insertText, replacement, `Input.imeSetComposition`, keys,
+  table cells). Headless Chrome does not turn touches into clicks, so iOS tap behaviour still needs the device.
+- `node scripts/bench.mjs` — long-note timing (criterion 7); exits 1 when over budget. Record new numbers in
+  README 「완성 기준」 when the decoration code changes.
 - `npm run serve` (`-- --host` for the LAN) → `/lab/` on PC and iPhone. CDP cannot reproduce the iOS
   keyboard (predictive bar, 3-finger undo, selection handles); those need the device.
 - Kill servers by port/handle only — never `taskkill /IM node.exe` (it also kills MCP servers).

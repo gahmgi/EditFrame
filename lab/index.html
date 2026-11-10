@@ -53,6 +53,8 @@
       <select id="sample" aria-label="견본 문서">
         <option value="basic">견본: 기본 문법 전체</option>
         <option value="worknote">견본: WorkNote 프리셋</option>
+        <option value="tables">견본: 표 편집해 보기</option>
+        <option value="long">견본: 긴 글 불러오기 (2,000줄, 성능 점검)</option>
       </select>
       <button type="button" id="btn-raw" aria-pressed="false">원문 보기</button>
       <button type="button" id="btn-ro" aria-pressed="false">읽기 전용</button>
@@ -60,6 +62,7 @@
       <button type="button" id="btn-log" aria-pressed="false">입력 기록</button>
     </div>
     <p id="status" role="status">불러오는 중…</p>
+    <p class="small tip">붙여 넣기: 엑셀·Numbers·구글 시트에서 칸 여러 개를 복사해 본문에 붙이면 표가 됩니다(웹 페이지의 표도). 표 칸 안에 붙이면 한 줄로 들어갑니다. 「긴 글 불러오기」 견본은 긴 문서에서 입력이 끊기는지 보는 용도입니다.</p>
     <div id="editor"></div>
 
     <section id="log-panel" hidden>
@@ -98,6 +101,17 @@
         <li><label><input type="checkbox" data-k="checkbox">체크박스를 누르면 체크만 바뀌고 커서는 그대로다. 되돌리기로 돌아간다.</label></li>
         <li><label><input type="checkbox" data-k="raw">「원문 보기」를 켜고 끄면 문서 글자가 하나도 바뀌지 않는다.</label></li>
         <li><label><input type="checkbox" data-k="pc-keys">PC: Tab/Shift+Tab 들여쓰기, Ctrl+B·Ctrl+U, 표 칸에서 Tab·Enter 이동이 된다.</label></li>
+        <li><label><input type="checkbox" data-k="undo-3"><span>아이폰: 글을 조금 고친 뒤 <b>세 손가락으로 왼쪽으로 쓸어</b> 되돌린다. 쓸 때 화면이 위아래로 밀리지 않고, 되돌리기가 한 번에 된다. 한·두 손가락 스크롤과 확대는 평소처럼 된다.</span></label></li>
+        <li><label><input type="checkbox" data-k="open-link"><span>아이폰: 링크 글자 <b>가운데</b>를 눌러 커서를 넣으면 끝에 「열기 ↗」가 뜨고, 누르면 새 창이 열린다. 커서가 링크 밖으로 나가면 사라진다. 원문은 그대로다.</span></label></li>
+        <li><label><input type="checkbox" data-k="open-chip"><span>아이폰: 「WorkNote 프리셋」 견본에서 노트 칩 안에 커서를 넣고 「열기 ↗」를 누르면 위 상태 줄에 「노트 열기 요청」이 뜬다.</span></label></li>
+        <li><label><input type="checkbox" data-k="open-typing"><span>아이폰: 링크 안에서 한글을 치는 <b>동안</b>에는 「열기 ↗」가 뜨지 않고, 글자가 깨지지 않는다(멈추면 다시 뜬다).</span></label></li>
+        <li><label><input type="checkbox" data-k="table-menu"><span>「표 편집해 보기」 견본: 칸을 누르면 그 칸 오른쪽 위에 <b>⋯</b> 하나만 뜬다. 눌러서 위에 줄 넣기 · 아래에 줄 넣기 · 왼쪽에 열 넣기 · 오른쪽에 열 넣기 · 이 줄 지우기 · 이 열 지우기를 하나씩 해 본다. 매번 되돌리기 한 번으로 돌아간다.</span></label></li>
+        <li><label><input type="checkbox" data-k="table-menu-rules"><span>머리글 칸에서는 「위에 줄 넣기」·「이 줄 지우기」가 흐리게(못 누름) 보인다. 열이 하나뿐이면 「이 열 지우기」가 흐리다. 마지막 본문 줄은 지울 수 있다.</span></label></li>
+        <li><label><input type="checkbox" data-k="table-menu-kb"><span>아이폰: ⋯ 와 메뉴를 누르는 동안 <b>키보드가 내려갔다 올라오지 않는다</b>. 줄·열을 넣으면 새 칸에, 지우면 옆 칸에 커서가 간다. <span class="why">(메뉴 뒤 키보드가 닫히면 기록해 주세요)</span></span></label></li>
+        <li><label><input type="checkbox" data-k="paste-pc"><span>PC: 엑셀(또는 Numbers·구글 시트)에서 칸 여러 개를 복사해 본문 빈 줄에 붙인다. 깨끗한 표가 되고, 병합 칸은 같은 값이 줄마다 들어간다. 되돌리기 한 번으로 사라진다.</span></label></li>
+        <li><label><input type="checkbox" data-k="paste-iphone"><span>아이폰: Numbers(또는 시트 앱)에서 칸 여러 개를 복사해 붙인다. 표가 된다. 메모 앱 글처럼 표가 아닌 글은 그대로 붙는다.</span></label></li>
+        <li><label><input type="checkbox" data-k="paste-cell">표 칸 안에 여러 줄 글을 붙이면 한 줄로 들어가고, 「|」 가 들어가도 표가 깨지지 않는다.</label></li>
+        <li><label><input type="checkbox" data-k="long"><span>「긴 글 불러오기」 견본: 가운데쯤에서 한글을 빠르게 치고, 체크박스를 누르고, 위아래로 스크롤한다. 끊기거나 늦게 따라오지 않는다.</span></label></li>
       </ol>
     </details>
   </main>
