@@ -141,8 +141,38 @@ async function tableMenuCheck(cdp, problems) {
   await cdp.eval(`(() => { const a = document.activeElement; if (a?.blur) a.blur(); })()`);
   const gone = await cdp.eval(`[...document.querySelectorAll(".ef-table-handle, .ef-table-menu")].every((e) => e.hidden)`);
   if (!gone) { bad++; console.log("FAIL table menu: handle/menu visible without a focused cell"); }
+  // An open menu registers document scroll / visualViewport resize listeners. Replacing the widget (new
+  // document) or destroying the editor must remove them. Count them through wrapped add/removeEventListener.
+  await cdp.eval(`(() => {
+    // Live listeners as [target, type, fn] — the same function is added to both targets.
+    const live = window.__liveList = [];
+    Object.defineProperty(window, "__live", { configurable: true, get: () => ({ size: live.length }) });
+    for (const [target, name] of [[document, "doc"], [window.visualViewport, "vv"]]) {
+      if (!target || target.__efWrapped) continue;
+      const add = target.addEventListener.bind(target), rem = target.removeEventListener.bind(target);
+      target.addEventListener = (t, fn, o) => { if (t === "scroll" || t === "resize") live.push([name, t, fn]); add(t, fn, o); };
+      target.removeEventListener = (t, fn, o) => { const i = live.findIndex((e) => e[0] === name && e[1] === t && e[2] === fn); if (i >= 0) live.splice(i, 1); rem(t, fn, o); };
+      target.__efWrapped = true;
+    }
+  })()`);
+  // Blur is blocked while the widget goes away: Chrome blurs a removed focused input (which also closes the menu),
+  // Safari need not — so the widget's own destroy() must release the listeners.
+  const noBlur = (code) => `(() => { const stop = (e) => e.stopImmediatePropagation(); window.addEventListener("blur", stop, true); try { ${code}; } finally { setTimeout(() => window.removeEventListener("blur", stop, true), 0); } })()`;
+  for (const [label, drop] of [["widget replaced", noBlur(`__ef.editor.setDoc("다른 문서")`)], ["editor destroyed", noBlur(`__ef.editor.destroy()`)]]) {
+    await cdp.eval(`(() => { __ef.load("basic"); __ef.editor.setDoc(${JSON.stringify(DOC)}); })()`);
+    await sleep(40);
+    await tapElement(cdp, `.ef-table [data-row="1"][data-col="0"] .ef-cell-view`, "mouse");
+    await tapElement(cdp, ".ef-table-handle", "mouse");
+    await sleep(40);
+    const opened = await cdp.eval(`__live.size`);
+    await cdp.eval(drop);
+    await sleep(40);
+    const left = await cdp.eval(`__live.size`);
+    if (!opened || left) { bad++; console.log(`FAIL table menu listeners (${label}): ${opened} registered, ${left} left`); }
+  }
+  await cdp.eval(`__ef.load("basic")`);
   if (problems.length > before) { bad++; for (const p of problems.slice(before)) console.log("  " + p); }
-  console.log(`${bad ? "FAIL" : "PASS"} table menu (${cases.length} actions, mouse + touch)`);
+  console.log(`${bad ? "FAIL" : "PASS"} table menu (${cases.length} actions, mouse + touch; listeners released)`);
   return bad ? 1 : 0;
 }
 
@@ -223,8 +253,32 @@ async function pasteCheck(cdp, problems) {
   got = await cdp.eval("__ef.editor.getDoc()");
   if (got !== "| 가 | 나 |\n| --- | --- |\n| 1 | x\\|y z 둘째 줄 |") fail("cell paste " + JSON.stringify(got));
 
+  // Real keyboard paste from the (headless) system clipboard: Ctrl+V converts TSV, Ctrl+Shift+V (paste as plain
+  // text) keeps it as text, and a later Ctrl+V converts again (the plain-paste flag does not stick).
+  const origin = await cdp.eval("location.origin");
+  await cdp.send("Browser.grantPermissions", { origin, permissions: ["clipboardReadWrite", "clipboardSanitizedWrite"] });
+  await cdp.eval(`(async () => { __ef.load("basic"); await navigator.clipboard.writeText("a\\tb\\n1\\t2"); })()`);
+  const keyPaste = async (modifiers) => {
+    await cdp.eval(`(() => { __ef.editor.setDoc("글"); const v = __ef.editor.view; v.focus(); v.dispatch({ selection: { anchor: 1 } }); })()`);
+    await cdp.send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: modifiers & 8 ? "V" : "v", code: "KeyV", windowsVirtualKeyCode: 86, modifiers });
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: modifiers & 8 ? "V" : "v", code: "KeyV", windowsVirtualKeyCode: 86, modifiers });
+    await sleep(80);
+    return cdp.eval("__ef.editor.getDoc()");
+  };
+  const TABLE = "글\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n";
+  if ((got = await keyPaste(2)) !== TABLE) fail("Ctrl+V did not convert " + JSON.stringify(got));
+  if ((got = await keyPaste(10)) !== "글a\tb\n1\t2") fail("Ctrl+Shift+V converted or lost the text " + JSON.stringify(got));
+  if ((got = await keyPaste(2)) !== TABLE) fail("Ctrl+V after Ctrl+Shift+V did not convert " + JSON.stringify(got));
+
+  // HTML with a paragraph around the table: the default paste keeps all of it (as plain text).
+  await cdp.eval(`(() => { __ef.editor.setDoc(""); __ef.editor.view.focus(); })()`);
+  await cdp.eval(paste("__ef.editor.view.contentDOM", "<p>앞 문단</p><table><tr><td>a</td><td>b</td></tr><tr><td>1</td><td>2</td></tr></table><p>뒤 문단</p>", "앞 문단\na\tb\n1\t2\n뒤 문단"));
+  await sleep(60);
+  got = await cdp.eval("__ef.editor.getDoc()");
+  if (got !== "앞 문단\na\tb\n1\t2\n뒤 문단") fail("mixed HTML was converted " + JSON.stringify(got));
+
   if (problems.length > before) { bad++; for (const p of problems.slice(before)) console.log("  " + p); }
-  console.log(`${bad ? "FAIL" : "PASS"} paste (HTML, TSV, plain text, inside a cell)`);
+  console.log(`${bad ? "FAIL" : "PASS"} paste (HTML, TSV, plain text, inside a cell, Ctrl+Shift+V, mixed HTML)`);
   return bad ? 1 : 0;
 }
 
