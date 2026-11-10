@@ -4,9 +4,10 @@
 //   node scripts/replay-traces.mjs traces/x.json   one trace
 //   CHROME_PATH=... node scripts/replay-traces.mjs
 //
-// 1. Starts scripts/serve.mjs on a free port, launches headless Chrome with a throwaway profile.
+// 1. Starts scripts/serve.mjs on a free port, launches headless Chrome with a throwaway profile (cdp.mjs).
 // 2. Opens /lab/ (which imports dist/editframe.mjs) and fails on any console error or uncaught exception.
-// 3. For each trace: loads setup.doc, places the caret, runs the steps through real input paths, waits for
+// 3. Lab checks: the table «⋯» menu (every item, mouse + touch), 「열기 ↗」 (touch emulation), paste.
+// 4. For each trace: loads setup.doc, places the caret, runs the steps through real input paths, waits for
 //    the IME guard's idle window, and compares the document with `expect` (byte for byte).
 //
 // Step ops (trace format "editframe-trace/1", see README):
@@ -20,51 +21,11 @@
 //   cell {row, col}          click a table cell (row 0 = header) to edit it
 //   wait {ms}
 // Processes are stopped through their own handles (never by image name).
-import { spawn } from "node:child_process";
-import { readFileSync, readdirSync, existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { createServer } from "node:net";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import { openLab, root, sleep } from "./cdp.mjs";
 
-const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const HOT_IDLE_MS = 700; // > HOT_MS (400) in src/core/preview.js, so the deferred recompute has run
-
-function findChrome() {
-  const c = [
-    process.env.CHROME_PATH,
-    "C:/Program Files/Google/Chrome/Application/chrome.exe",
-    "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "/usr/bin/google-chrome", "/usr/bin/chromium",
-  ].filter(Boolean);
-  return c.find((p) => existsSync(p));
-}
-const freePort = () => new Promise((res) => { const s = createServer(); s.listen(0, () => { const p = s.address().port; s.close(() => res(p)); }); });
-
-async function waitFor(fn, ms = 10000) {
-  const end = Date.now() + ms;
-  for (;;) {
-    try { const v = await fn(); if (v) return v; } catch {}
-    if (Date.now() > end) throw new Error("timeout");
-    await sleep(100);
-  }
-}
-
-class Cdp {
-  constructor(ws) { this.ws = ws; this.id = 0; this.pending = new Map(); this.listeners = []; ws.addEventListener("message", (m) => this.onMessage(JSON.parse(m.data))); }
-  onMessage(msg) {
-    if (msg.id && this.pending.has(msg.id)) { const { res, rej } = this.pending.get(msg.id); this.pending.delete(msg.id); msg.error ? rej(new Error(msg.error.message)) : res(msg.result); }
-    else for (const l of this.listeners) l(msg);
-  }
-  send(method, params = {}) { const id = ++this.id; this.ws.send(JSON.stringify({ id, method, params })); return new Promise((res, rej) => this.pending.set(id, { res, rej })); }
-  async eval(expr) {
-    const r = await this.send("Runtime.evaluate", { expression: expr, awaitPromise: true, returnByValue: true });
-    if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text);
-    return r.result.value;
-  }
-}
 
 const KEYS = { Enter: 13, Backspace: 8, Tab: 9, Escape: 27, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40 };
 
@@ -269,32 +230,10 @@ async function pasteCheck(cdp, problems) {
 
 async function main() {
   const files = process.argv.slice(2).length ? process.argv.slice(2) : readdirSync(join(root, "traces")).filter((f) => f.endsWith(".json")).map((f) => join(root, "traces", f));
-  const chrome = findChrome();
-  if (!chrome) { console.error("Chrome/Edge not found — set CHROME_PATH"); process.exit(2); }
-  if (!existsSync(join(root, "dist/editframe.mjs"))) { console.error("dist/editframe.mjs missing — run npm run build"); process.exit(2); }
-
-  const httpPort = await freePort(), cdpPort = await freePort();
-  const server = spawn(process.execPath, [join(root, "scripts/serve.mjs"), "--port", String(httpPort)], { stdio: "ignore" });
-  const profile = mkdtempSync(join(tmpdir(), "editframe-cdp-"));
-  const browser = spawn(chrome, ["--headless=new", `--remote-debugging-port=${cdpPort}`, `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", "--disable-gpu", "about:blank"], { stdio: "ignore" });
+  const lab = await openLab();
+  const { cdp, problems } = lab;
   let failed = 0;
   try {
-    await waitFor(async () => (await fetch(`http://127.0.0.1:${cdpPort}/json/version`)).ok);
-    const target = await (await fetch(`http://127.0.0.1:${cdpPort}/json/new?about:blank`, { method: "PUT" })).json();
-    const ws = new WebSocket(target.webSocketDebuggerUrl);
-    await new Promise((r, j) => { ws.onopen = r; ws.onerror = j; });
-    const cdp = new Cdp(ws);
-    const problems = [];
-    cdp.listeners.push((m) => {
-      if (m.method === "Runtime.exceptionThrown") problems.push("exception: " + (m.params.exceptionDetails.exception?.description || m.params.exceptionDetails.text));
-      if (m.method === "Runtime.consoleAPICalled" && m.params.type === "error") problems.push("console.error: " + m.params.args.map((a) => a.value ?? a.description).join(" "));
-      if (m.method === "Log.entryAdded" && m.params.entry.level === "error") problems.push("log: " + m.params.entry.text + " " + (m.params.entry.url || ""));
-    });
-    await cdp.send("Runtime.enable");
-    await cdp.send("Log.enable");
-    await cdp.send("Page.enable");
-    await cdp.send("Page.navigate", { url: `http://127.0.0.1:${httpPort}/lab/` });
-    await waitFor(() => cdp.eval("!!window.__ef"));
     // Rendered text outside code blocks must show no raw syntax (caret is at the end, touching nothing).
     const info = await cdp.eval(`(() => {
       const lines = [...__ef.editor.view.contentDOM.querySelectorAll(".cm-line:not(.ef-codeblock)")].map((l) => l.textContent).join(" ");
@@ -335,12 +274,8 @@ async function main() {
         for (const p of problems.slice(before)) console.log("  " + p);
       }
     }
-    ws.close();
   } finally {
-    browser.kill();
-    server.kill();
-    await sleep(300);
-    try { rmSync(profile, { recursive: true, force: true }); } catch {}
+    await lab.close();
   }
   console.log(failed ? `${failed} failed` : "all passed");
   process.exit(failed ? 1 : 0);

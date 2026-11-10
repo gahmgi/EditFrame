@@ -1,8 +1,13 @@
 // EditFrame lab — tests what consumers get: imports the built single file (dist/editframe.mjs).
 import { createEditor, worknotePreset, EditorView, VERSION } from "../dist/editframe.mjs";
-import { BASIC, WORKNOTE } from "./samples.js";
+import { BASIC, WORKNOTE, TABLES, longNote } from "./samples.js";
 
-const SAMPLES = { basic: { doc: BASIC, presets: [] }, worknote: { doc: WORKNOTE, presets: [worknotePreset({ onOpenNote: (id) => setStatus(`노트 열기 요청: ${id} (시험대에서는 이동하지 않습니다)`) })] } };
+const SAMPLES = {
+  basic: { doc: BASIC, presets: [] },
+  worknote: { doc: WORKNOTE, presets: [worknotePreset({ onOpenNote: (id) => setStatus(`노트 열기 요청: ${id} (시험대에서는 이동하지 않습니다)`) })] },
+  tables: { doc: TABLES, presets: [] },
+  long: { doc: longNote(), presets: [] }, // 「긴 글 불러오기」 — also what scripts/bench.mjs measures
+};
 
 const $ = (id) => document.getElementById(id);
 const statusEl = $("status"), mdEl = $("md"), logEl = $("log");
@@ -154,9 +159,10 @@ function onChange() {
   mdTimer = setTimeout(() => { mdEl.textContent = editor.getDoc(); refreshStatus(); }, 150);
 }
 
-function load(which) {
+// `lines` (long sample only) builds a note of that many lines — scripts/bench.mjs --lines.
+function load(which, lines) {
   current = which;
-  const s = SAMPLES[which];
+  const s = which === "long" && lines ? { ...SAMPLES.long, doc: longNote(lines) } : SAMPLES[which];
   original = s.doc;
   editor?.destroy();
   $("editor").replaceChildren();

@@ -2,14 +2,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EditorSelection } from "@codemirror/state";
 import { createState, worknotePreset, toggleTaskAt } from "../src/index.js";
-import { BASIC, WORKNOTE, EDGE } from "../lab/samples.js";
+import { BASIC, WORKNOTE, TABLES, EDGE, longNote } from "../lab/samples.js";
 import { tableAt, cellEdit, cellPads } from "../src/core/table-model.js";
 
 // The markdown text is the source of truth: building the editor state with every extension, moving the
 // caret everywhere and toggling raw/preview must never change a byte. Only real edits change text, and a
 // checkbox toggle changes exactly one character.
 
-const corpus = [BASIC, WORKNOTE, ...EDGE];
+const corpus = [BASIC, WORKNOTE, TABLES, ...EDGE];
 const optionSets = [
   { name: "core", options: {} },
   { name: "worknote", options: { presets: [worknotePreset()] } },
@@ -37,6 +37,18 @@ for (const { name, options } of optionSets) {
     }
   });
 }
+
+// The long performance note is too big for a caret walk over every position: open it with every option set
+// and visit a spread of positions (every 997th) plus a select-all.
+test("round-trip: the long note (lab 「긴 글 불러오기」) is unchanged by opening and caret moves", () => {
+  const input = longNote();
+  for (const { options } of optionSets) {
+    let state = createState(input, options);
+    for (let pos = 0; pos <= state.doc.length; pos += 997) state = state.update({ selection: EditorSelection.cursor(pos) }).state;
+    state = state.update({ selection: EditorSelection.range(0, state.doc.length) }).state;
+    assert.equal(state.sliceDoc(), input);
+  }
+});
 
 test("checkbox toggle changes exactly one character, and toggling back restores the text", () => {
   for (const input of [BASIC, WORKNOTE]) {
