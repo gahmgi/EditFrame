@@ -26,6 +26,25 @@ public forever.
 - Read text back with `getDoc()` / `state.sliceDoc()` (keeps `\r\n` documents intact), not
   `state.doc.toString()`.
 
+## Completion criteria (each guarded by a test)
+
+1. Korean input never breaks on iPhone or PC — `test/ime-guard.test.js`, `scripts/replay-traces.mjs`
+   (traces). Real-device check passed 2026-11-10. Never weaken the guards (compose, `HOT_MS`, native cell inputs).
+2. Open → close is byte-identical — `test/roundtrip.test.js`.
+3. Results instead of symbols (tables, checkboxes, links) — `test/marks.test.js`, the lab smoke check in
+   `replay-traces.mjs` (`rawSyntaxVisible=[]`).
+4. Table rows/columns can be inserted and deleted — `test/table-model.test.js` (pure transforms, byte
+   discipline), the table-menu check in `replay-traces.mjs`.
+5. Pasting a table from Excel or the web yields a clean GFM table — `test/paste.test.js`.
+6. On iPhone, undo and opening links are easy — `test/open-button.test.js` (when 「열기 ↗」 shows); the
+   3-finger undo scroll guard is device-only (lab checklist).
+7. Long notes do not stutter — `node scripts/bench.mjs`: decoration recompute < 8 ms per keystroke on a
+   ~2,000-line note. Numbers are recorded in README 「완성 기준」.
+
+Non-goals (decided, do not reopen): merged cells (no GFM syntax; display-only merging would make screen and
+text disagree), stored column widths (columns auto-fit), colors, a free-form document model (the markdown
+text stays the source of truth).
+
 ## Structure
 
 - `src/core/` — generic live preview. Pure judgement in `marks.js` / `table-model.js` / `format.js`
