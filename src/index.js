@@ -20,6 +20,7 @@ import { history, historyKeymap, defaultKeymap } from "@codemirror/commands";
 import { efConfig, coarsePointer } from "./core/config.js";
 import { preview, compositionWatch, clickHandlers, toggleTaskAt, threeFingerUndo } from "./core/preview.js";
 import { editKeys } from "./core/keys.js";
+import { pasteTables } from "./core/table.js";
 import { editFrameTheme } from "./core/theme.js";
 
 export { worknotePreset } from "./presets/worknote.js";
@@ -54,6 +55,7 @@ export function createState(doc, options = {}, slots = { preview: new Compartmen
       keymap.of([...defaultKeymap, ...historyKeymap]),
       EditorView.lineWrapping,
       threeFingerUndo,
+      pasteTables, // also in raw mode: the result is plain GFM text
       EditorView.contentAttributes.of({ spellcheck: "false", autocorrect: "off", autocapitalize: "off", "aria-label": options.ariaLabel || "본문" }),
       // The host's own link handler runs before preset handlers.
       efConfig.of({ onLinkClick: options.onLinkClick, openButton: typeof options.openButton === "boolean" ? options.openButton : coarsePointer() }),

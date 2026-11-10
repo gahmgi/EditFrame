@@ -220,6 +220,53 @@ async function openButtonCheck(cdp, problems) {
   return bad ? 1 : 0;
 }
 
+// Paste with the browser's own DOMParser: Excel-like HTML + TSV into the body becomes one GFM table on its own
+// lines (single undo step); plain text falls through to CodeMirror; a paste into a cell stays on one line.
+async function pasteCheck(cdp, problems) {
+  const before = problems.length;
+  let bad = 0;
+  const fail = (msg) => { bad++; console.log("FAIL paste: " + msg); };
+  const paste = (target, html, text) => `(() => { const dt = new DataTransfer(); ${html != null ? `dt.setData("text/html", ${JSON.stringify(html)});` : ""} dt.setData("text/plain", ${JSON.stringify(text)});
+    ${target}.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true })); })()`;
+  const html = `<html><head><style>td{mso-number-format:General}</style></head><body><!--StartFragment--><table><tr><td>품목</td><td>수량</td></tr><tr><td rowspan=2>과일</td><td>3&nbsp;|&nbsp;4</td></tr><tr><td>5</td></tr><!--EndFragment--></table></body></html>`;
+  await cdp.eval(`(() => { __ef.load("basic"); __ef.editor.setDoc("앞 문장 뒤"); const v = __ef.editor.view; v.focus(); v.dispatch({ selection: { anchor: 4 } }); })()`);
+  await cdp.eval(paste("__ef.editor.view.contentDOM", html, "품목\t수량\n과일\t3 | 4\n\t5\n"));
+  await sleep(60);
+  let got = await cdp.eval("__ef.editor.getDoc()");
+  const want = "앞 문장\n\n| 품목 | 수량 |\n| --- | --- |\n| 과일 | 3 \\| 4 |\n| 과일 | 5 |\n\n 뒤";
+  if (got !== want) fail(`body HTML\n  expected ${JSON.stringify(want)}\n  got      ${JSON.stringify(got)}`);
+  if (!(await cdp.eval(`document.querySelectorAll(".ef-table").length === 1`))) fail("the pasted table is not drawn as a table");
+  await cdp.eval(`(() => { const v = __ef.editor.view; v.focus(); })()`);
+  await cdp.send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: "z", code: "KeyZ", windowsVirtualKeyCode: 90, modifiers: 2 });
+  await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "z", code: "KeyZ", windowsVirtualKeyCode: 90, modifiers: 2 });
+  await sleep(60);
+  if (await cdp.eval("__ef.editor.getDoc()") !== "앞 문장 뒤") fail("one undo did not remove the pasted table");
+
+  await cdp.eval(`(() => { __ef.editor.setDoc("첫 줄"); const v = __ef.editor.view; v.focus(); v.dispatch({ selection: { anchor: 3 } }); })()`);
+  await cdp.eval(paste("__ef.editor.view.contentDOM", null, "a\tb\n1\t2"));
+  await sleep(60);
+  got = await cdp.eval("__ef.editor.getDoc()");
+  if (got !== "첫 줄\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n") fail("body TSV " + JSON.stringify(got));
+
+  await cdp.eval(`(() => { __ef.editor.setDoc("글"); const v = __ef.editor.view; v.focus(); v.dispatch({ selection: { anchor: 1 } }); })()`);
+  await cdp.eval(paste("__ef.editor.view.contentDOM", null, " 그냥 글"));
+  await sleep(60);
+  got = await cdp.eval("__ef.editor.getDoc()");
+  if (got !== "글 그냥 글") fail("plain text did not fall through to the default paste " + JSON.stringify(got));
+
+  await cdp.eval(`(() => { __ef.editor.setDoc("| 가 | 나 |\\n| --- | --- |\\n| 1 |  |"); })()`);
+  await sleep(30);
+  await tapElement(cdp, `.ef-table [data-row="1"][data-col="1"] .ef-cell-view`, "mouse");
+  await cdp.eval(paste("document.activeElement", html, "x|y\tz\r\n둘째 줄\r\n"));
+  await sleep(60);
+  got = await cdp.eval("__ef.editor.getDoc()");
+  if (got !== "| 가 | 나 |\n| --- | --- |\n| 1 | x\\|y z 둘째 줄 |") fail("cell paste " + JSON.stringify(got));
+
+  if (problems.length > before) { bad++; for (const p of problems.slice(before)) console.log("  " + p); }
+  console.log(`${bad ? "FAIL" : "PASS"} paste (HTML, TSV, plain text, inside a cell)`);
+  return bad ? 1 : 0;
+}
+
 async function main() {
   const files = process.argv.slice(2).length ? process.argv.slice(2) : readdirSync(join(root, "traces")).filter((f) => f.endsWith(".json")).map((f) => join(root, "traces", f));
   const chrome = findChrome();
@@ -259,6 +306,7 @@ async function main() {
     if (!info.same || !info.tables || info.raw.length || problems.length) { failed++; for (const p of problems) console.log("  " + p); }
     failed += await tableMenuCheck(cdp, problems);
     failed += await openButtonCheck(cdp, problems);
+    failed += await pasteCheck(cdp, problems);
 
     for (const file of files) {
       const t = JSON.parse(readFileSync(file, "utf8"));

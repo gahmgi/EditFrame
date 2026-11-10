@@ -16,10 +16,11 @@
 // suppression, Tab/Enter cell navigation, double-rAF focus after a structural change, Backspace after a
 // table selects it. See THIRD_PARTY_NOTICES.md.
 
-import { WidgetType } from "@codemirror/view";
+import { WidgetType, EditorView } from "@codemirror/view";
 import { EditorSelection } from "@codemirror/state";
 import { undo, redo, isolateHistory } from "@codemirror/commands";
 import { tableAt, rowLine, cellEdit, cellPads, splitCells, cellText, emptyRow, insertRow, deleteRow, insertColumn, deleteColumn } from "./table-model.js";
+import { tableFromClipboard, placeTable, singleLine, browserParse } from "./paste.js";
 import { efConfig } from "./config.js";
 
 // Render a cell's markdown as inline-styled DOM (markers removed) using the editor's scanner.
@@ -159,6 +160,16 @@ function attachCell(view, td) {
     if (composing || e.isComposing) return;
     commit();
     placeHandle(td); // the cell may have grown; the handle is outside the cell, so this never touches the input
+  });
+  // Paste into a cell: one line (a cell cannot hold a line break or a tab); `|` is escaped by the commit.
+  input.addEventListener("paste", (e) => {
+    const text = e.clipboardData?.getData("text/plain");
+    if (text == null || composing || view.state.readOnly) return;
+    e.preventDefault();
+    const a = input.selectionStart ?? input.value.length, b = input.selectionEnd ?? a;
+    input.setRangeText(singleLine(text), a, b, "end");
+    commit();
+    placeHandle(td);
   });
   input.addEventListener("keydown", (e) => {
     // Never act on keys that belong to an active composition (Enter that commits a syllable, etc.).
@@ -517,3 +528,27 @@ export function backspaceAfterTable(tablesOf) {
     return true;
   };
 }
+
+// Paste in the editor body: a table from a spreadsheet or web page (HTML <table>, else TSV) becomes a GFM table
+// on its own lines. Anything else goes to CodeMirror's default paste. Cell inputs handle their own paste.
+export const pasteTables = EditorView.domEventHandlers({
+  paste(e, view) {
+    if (view.state.readOnly || e.target.closest?.(".ef-table")) return false;
+    const dt = e.clipboardData;
+    if (!dt) return false;
+    const table = tableFromClipboard({ html: dt.getData("text/html"), text: dt.getData("text/plain") }, browserParse);
+    if (!table) return false;
+    e.preventDefault();
+    const { state } = view;
+    const r = state.selection.main, doc = state.doc;
+    const first = doc.lineAt(r.from), last = doc.lineAt(r.to);
+    const p = placeTable(table, {
+      before: state.sliceDoc(first.from, r.from),
+      after: state.sliceDoc(r.to, last.to),
+      prev: first.number > 1 ? doc.line(first.number - 1).text : null,
+      next: last.number < doc.lines ? doc.line(last.number + 1).text : null,
+    });
+    view.dispatch({ changes: { from: r.from, to: r.to, insert: p.text }, selection: { anchor: r.from + p.caret }, userEvent: "input.paste", scrollIntoView: true });
+    return true;
+  },
+});
