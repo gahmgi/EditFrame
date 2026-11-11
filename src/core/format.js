@@ -1,4 +1,4 @@
-// Bold / underline toggles on a selection — pure string transforms.
+// Bold / strikethrough / underline toggles on a selection — pure string transforms.
 // Ported from WorkNote editing.js (toggleBoldSelection / toggleUnderlineSelection, same author).
 //
 // Returns { text, caretStart, caretEnd, dropBefore?, dropAfter?, noop? }:
@@ -11,27 +11,32 @@
 const asText = (v) => String(v == null ? "" : v);
 const noopResult = (s) => ({ text: s, caretStart: 0, caretEnd: s.length, noop: true });
 
-export function toggleBoldSelection(sel, ctx) {
+// `**` and `~~` are symmetric markers (no open/close form): same rules for both.
+function toggleSymmetric(marker, sel, ctx) {
   const s = asText(sel);
   const before = asText(ctx && ctx.before), after = asText(ctx && ctx.after);
+  const n = marker.length;
   // ① The whole selection is `**…**` — unwrap only if no marker remains inside
   //   (`**a** and **b**` unwrapped at the ends would become `a** and **b`).
-  if (s.length >= 4 && s.startsWith("**") && s.endsWith("**")) {
-    const inner = s.slice(2, -2);
-    if (inner.includes("**")) return noopResult(s);
+  if (s.length >= 2 * n && s.startsWith(marker) && s.endsWith(marker)) {
+    const inner = s.slice(n, -n);
+    if (inner.includes(marker)) return noopResult(s);
     return { text: inner, caretStart: 0, caretEnd: inner.length };
   }
-  // ② The selection sits inside `**…**`. `**` has no open/close form, so "inside a span" and "between two
-  //   spans" look the same locally; an odd count of `**` before the selection means we are inside one.
-  const insideBold = ((before.match(/\*\*/g) || []).length % 2) === 1;
-  if (insideBold && before.endsWith("**") && after.startsWith("**") && !s.includes("**")) {
-    return { text: s, caretStart: 0, caretEnd: s.length, dropBefore: 2, dropAfter: 2 };
+  // ② The selection sits inside `**…**`. An odd count of markers before the selection means we are inside one.
+  const inside = (before.split(marker).length - 1) % 2 === 1;
+  if (inside && before.endsWith(marker) && after.startsWith(marker) && !s.includes(marker)) {
+    return { text: s, caretStart: 0, caretEnd: s.length, dropBefore: n, dropAfter: n };
   }
-  // ③ Wrapping a selection that already has markers would produce `***…***` — stop.
-  if (s.includes("**")) return noopResult(s);
-  if (s === "") return { text: "****", caretStart: 2, caretEnd: 2 };
-  return { text: `**${s}**`, caretStart: 2, caretEnd: 2 + s.length };
+  // ③ Wrapping a selection that already has markers would stack them (`***…***`) — stop.
+  if (s.includes(marker)) return noopResult(s);
+  if (s === "") return { text: marker + marker, caretStart: n, caretEnd: n };
+  return { text: marker + s + marker, caretStart: n, caretEnd: n + s.length };
 }
+
+export const toggleBoldSelection = (sel, ctx) => toggleSymmetric("**", sel, ctx);
+// GFM strikethrough `~~…~~` (Ctrl/⌘+Shift+X).
+export const toggleStrikeSelection = (sel, ctx) => toggleSymmetric("~~", sel, ctx);
 
 // Underline is stored as <u>…</u> (markdown has no underline).
 export function toggleUnderlineSelection(sel, ctx) {

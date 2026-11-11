@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — 2026-11-11
+
+- Strikethrough toggle: Ctrl/⌘+Shift+X wraps the selection in `~~…~~` and unwraps it on a second press
+  (same rules as Ctrl/⌘+B: unwraps from inside a span, never stacks markers, mixed selections are left alone).
+  Bold and strike share one symmetric-marker helper in `format.js`. `test/format.test.js`; the replay script
+  presses the real keys (`format keys`).
+
 ## Unreleased — 2026-11-10
 
 - Completion criteria and non-goals documented (README 「완성 기준」, CLAUDE.md), each tied to a test.

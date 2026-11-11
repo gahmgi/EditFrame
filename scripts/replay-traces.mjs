@@ -282,6 +282,34 @@ async function pasteCheck(cdp, problems) {
   return bad ? 1 : 0;
 }
 
+// Format keys through the real keyboard path: Ctrl+B and Ctrl+Shift+X wrap a selection, a second press unwraps.
+async function formatKeysCheck(cdp, problems) {
+  const before = problems.length;
+  let bad = 0;
+  const fail = (msg) => { bad++; console.log("FAIL format keys: " + msg); };
+  const press = async (key, code, vk, modifiers) => {
+    await cdp.send("Input.dispatchKeyEvent", { type: "rawKeyDown", key, code, windowsVirtualKeyCode: vk, modifiers });
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode: vk, modifiers });
+    await sleep(60);
+    return cdp.eval("__ef.editor.getDoc()");
+  };
+  const select = (doc, a, h) => cdp.eval(`(() => { __ef.load("basic"); __ef.editor.setDoc(${JSON.stringify(doc)}); const v = __ef.editor.view; v.focus(); v.dispatch({ selection: { anchor: ${a}, head: ${h} } }); })()`);
+  let got;
+  await select("지난 일정 정리", 0, 5);
+  if ((got = await press("X", "KeyX", 88, 10)) !== "~~지난 일정~~ 정리") fail("Ctrl+Shift+X did not wrap " + JSON.stringify(got));
+  if ((got = await press("X", "KeyX", 88, 10)) !== "지난 일정 정리") fail("second Ctrl+Shift+X did not unwrap " + JSON.stringify(got));
+  await cdp.eval(`__ef.editor.view.dispatch({ selection: { anchor: 0, head: 5 } })`);
+  await press("X", "KeyX", 88, 10);
+  await cdp.eval(`__ef.editor.view.dispatch({ selection: { anchor: __ef.editor.view.state.doc.length } })`);
+  await sleep(500);
+  if (!(await cdp.eval(`!!document.querySelector(".ef-strike") && !__ef.editor.view.contentDOM.textContent.includes("~~")`))) fail("strikethrough is not drawn (or ~~ is visible)");
+  await select("가나다", 0, 3);
+  if ((got = await press("b", "KeyB", 66, 2)) !== "**가나다**") fail("Ctrl+B did not wrap " + JSON.stringify(got));
+  if (problems.length > before) { bad++; for (const p of problems.slice(before)) console.log("  " + p); }
+  console.log(`${bad ? "FAIL" : "PASS"} format keys (Ctrl+Shift+X strike on/off and drawn, Ctrl+B)`);
+  return bad ? 1 : 0;
+}
+
 async function main() {
   const files = process.argv.slice(2).length ? process.argv.slice(2) : readdirSync(join(root, "traces")).filter((f) => f.endsWith(".json")).map((f) => join(root, "traces", f));
   const lab = await openLab();
@@ -300,6 +328,7 @@ async function main() {
     failed += await tableMenuCheck(cdp, problems);
     failed += await openButtonCheck(cdp, problems);
     failed += await pasteCheck(cdp, problems);
+    failed += await formatKeysCheck(cdp, problems);
 
     for (const file of files) {
       const t = JSON.parse(readFileSync(file, "utf8"));

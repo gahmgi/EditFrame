@@ -3,7 +3,7 @@
 import { Prec, EditorSelection } from "@codemirror/state";
 import { keymap } from "@codemirror/view";
 import { continueList, scanBlock } from "./marks.js";
-import { toggleBoldSelection, toggleUnderlineSelection } from "./format.js";
+import { toggleBoldSelection, toggleStrikeSelection, toggleUnderlineSelection } from "./format.js";
 import { backspaceAfterTable, withLineBreaks } from "./table.js";
 import { tablesOf } from "./preview.js";
 
@@ -35,7 +35,7 @@ export function shiftLines(view, dir) {
   return true;
 }
 
-// Ctrl/⌘+B · U. Mixed selections are left untouched (noop).
+// Ctrl/⌘+B · U · Shift+X. Mixed selections are left untouched (noop).
 function formatWith(fn) {
   return (view) => {
     const { state } = view;
@@ -96,4 +96,5 @@ export const editKeys = Prec.high(keymap.of([
   { key: "Tab", run: (v) => shiftLines(v, 1), shift: (v) => shiftLines(v, -1) },
   { key: "Mod-b", run: formatWith(toggleBoldSelection) },
   { key: "Mod-u", run: formatWith(toggleUnderlineSelection) },
+  { key: "Mod-Shift-x", run: formatWith(toggleStrikeSelection) },
 ]));
