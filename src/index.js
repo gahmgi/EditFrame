@@ -107,7 +107,11 @@ export function createEditor(parent, options = {}) {
     view,
     getDoc: () => view.state.sliceDoc(),
     // Replace the document. Undo history starts fresh; onChange is not called.
-    setDoc: (text) => view.setState(makeState(text)),
+    // An open table menu holds document/viewport listeners — release them before the widgets go away.
+    setDoc(text) {
+      for (const wrap of view.dom.querySelectorAll(".ef-table")) releaseTable(wrap);
+      view.setState(makeState(text));
+    },
     // Raw mode shows the markdown as-is (editing still works).
     setRaw(on) {
       raw = !!on;
