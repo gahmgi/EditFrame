@@ -35,19 +35,31 @@ export function shiftLines(view, dir) {
   return true;
 }
 
+// Where formatting starts: past the line marker when a one-line selection begins on it.
+export function formatStart(state, from, to) {
+  const line = state.doc.lineAt(from);
+  if (to > line.to) return from; // multi-line selection: leave as is
+  const b = scanBlock(line.text);
+  const content = b ? line.from + b.to : line.from;
+  return from < content && to > content ? content : from;
+}
+
 // Ctrl/⌘+B · U, Alt+Shift+5 (strike). Mixed selections are left untouched (noop).
 function formatWith(fn) {
   return (view) => {
     const { state } = view;
     if (state.readOnly) return false;
-    const r = state.selection.main;
+    let r = state.selection.main;
+    // A selection that starts on a line marker (`- [ ] `, `- `, `## `…) formats the content only: wrapping the
+    // marker would turn `- [ ] task` into `~~- [ ] task~~`, which is no longer a task.
+    const from = formatStart(state, r.from, r.to);
     // Context is the surrounding line(s): inline marks never span lines in this editor.
-    const res = fn(state.sliceDoc(r.from, r.to), {
-      before: state.sliceDoc(state.doc.lineAt(r.from).from, r.from),
+    const res = fn(state.sliceDoc(from, r.to), {
+      before: state.sliceDoc(state.doc.lineAt(from).from, from),
       after: state.sliceDoc(r.to, state.doc.lineAt(r.to).to),
     });
     if (res.noop) return true;
-    const start = r.from - (res.dropBefore || 0), end = r.to + (res.dropAfter || 0);
+    const start = from - (res.dropBefore || 0), end = r.to + (res.dropAfter || 0);
     view.dispatch({
       changes: { from: start, to: end, insert: res.text },
       selection: EditorSelection.range(start + res.caretStart, start + res.caretEnd),

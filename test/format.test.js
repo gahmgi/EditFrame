@@ -52,3 +52,25 @@ test("bold keeps its behaviour after sharing the helper", () => {
   assert.ok(toggleBoldSelection("a ** b", { before: "", after: "" }).noop);
   assert.equal(apply(toggleUnderlineSelection, "가", 0, 1).line, "<u>가</u>");
 });
+
+test("strike: one or two tildes render as strike, like marked; tilde runs of three do not", () => {
+  const types = (s) => scanLine(s).inline.map((e) => e.type);
+  assert.deepEqual(types("~- [ ] 지난 일~"), ["strike"]);
+  assert.deepEqual(types("~~두 개~~ 와 ~하나~"), ["strike", "strike"]);
+  assert.deepEqual(types("10~20"), []);
+  assert.deepEqual(types("~ 띄운 것 ~"), []);
+  assert.deepEqual(types("~~~펜스 아님~~~"), []);
+  const one = scanLine("~하나~").inline[0];
+  assert.deepEqual(one.hide.map(([a, b]) => b - a), [1, 1], "one tilde hidden on each side");
+});
+
+test("formatting a whole task line wraps the content, not the marker", async () => {
+  const { createState } = await import("../src/index.js");
+  const { formatStart } = await import("../src/core/keys.js");
+  const s = createState("- [ ] 장보기\n## 제목\n평문");
+  assert.equal(formatStart(s, 0, 9), 6, "task: after `- [ ] `");
+  assert.equal(formatStart(s, 10, 15), 13, "heading: after `## `");
+  assert.equal(formatStart(s, 16, 18), 16, "plain line unchanged");
+  assert.equal(formatStart(s, 7, 9), 7, "selection inside the content unchanged");
+  assert.equal(formatStart(s, 0, 12), 0, "multi-line selection unchanged");
+});

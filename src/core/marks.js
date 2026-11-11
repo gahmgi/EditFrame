@@ -40,7 +40,9 @@ const CORE_RULES_AFTER_PRESETS = [
   { type: "bold", re: /\*\*(?=\S)(.*?\S)\*\*/g, parts: (m) => ({ hide: [[0, 2], [m[0].length - 2, m[0].length]] }) },
   { type: "bold", re: /(?<![\p{L}\p{N}_])__(?=\S)(.*?\S)__(?![\p{L}\p{N}_])/gu, parts: (m) => ({ hide: [[0, 2], [m[0].length - 2, m[0].length]] }) },
   { type: "underline", re: /<u>(.+?)<\/u>/g, parts: (m) => ({ hide: [[0, 3], [m[0].length - 4, m[0].length]] }) },
-  { type: "strike", re: /~~(?=\S)(.*?\S)~~/g, parts: (m) => ({ hide: [[0, 2], [m[0].length - 2, m[0].length]] }) },
+  // One or two tildes, as GFM and marked (`del: /^(~~?)(?=[^\s~])([\s\S]*?[^\s~])\1(?=[^~]|$)/`) — a host that
+  // renders a view with marked shows `~a~` struck, so the editor must too.
+  { type: "strike", re: /(?<!~)(~~?)(?=[^\s~])(.*?[^\s~])\1(?!~)/g, parts: (m) => ({ hide: [[0, m[1].length], [m[0].length - m[1].length, m[0].length]] }) },
   { type: "italic", re: /(?<![*\p{L}\p{N}])\*(?=[^\s*])(.*?[^\s*])\*(?![*\p{L}\p{N}])/gu, parts: (m) => ({ hide: [[0, 1], [m[0].length - 1, m[0].length]] }) },
   { type: "italic", re: /(?<![_\p{L}\p{N}])_(?=[^\s_])(.*?[^\s_])_(?![_\p{L}\p{N}])/gu, parts: (m) => ({ hide: [[0, 1], [m[0].length - 1, m[0].length]] }) },
 ];
