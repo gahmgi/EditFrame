@@ -6,6 +6,10 @@
   (same rules as Ctrl/⌘+B: unwraps from inside a span, never stacks markers, mixed selections are left alone).
   Bold and strike share one symmetric-marker helper in `format.js`. `test/format.test.js`; the replay script
   presses the real keys (`format keys`).
+- Strike also renders with one tilde (`~a~`), matching GFM/marked — a WorkNote note written as `~- [ ] …~` showed raw
+  markers in the editor while the view mode struck it.
+- Formatting a one-line selection that starts on a line marker (`- [ ] `, `- `, `## `…) wraps the content only
+  (`- [ ] ~~task~~`, still a task) — `formatStart` in keys.js.
 - `setDoc` releases open table widgets' document/viewport listeners first (found while wiring WorkNote).
 
 ## Unreleased — 2026-11-10
