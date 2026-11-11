@@ -2,7 +2,7 @@
 
 ## Unreleased — 2026-11-11
 
-- Strikethrough toggle: Ctrl/⌘+Shift+X wraps the selection in `~~…~~` and unwraps it on a second press
+- Strikethrough toggle: Alt+Shift+5 (as in Google Docs; first shipped as Ctrl/⌘+Shift+X, moved away from Ctrl+X/cut) wraps the selection in `~~…~~` and unwraps it on a second press
   (same rules as Ctrl/⌘+B: unwraps from inside a span, never stacks markers, mixed selections are left alone).
   Bold and strike share one symmetric-marker helper in `format.js`. `test/format.test.js`; the replay script
   presses the real keys (`format keys`).

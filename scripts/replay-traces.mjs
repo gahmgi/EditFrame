@@ -282,7 +282,8 @@ async function pasteCheck(cdp, problems) {
   return bad ? 1 : 0;
 }
 
-// Format keys through the real keyboard path: Ctrl+B and Ctrl+Shift+X wrap a selection, a second press unwraps.
+// Format keys through the real keyboard path: Ctrl+B and Alt+Shift+5 wrap a selection, a second press unwraps;
+// Ctrl+Shift+X and Ctrl+X are not strike.
 async function formatKeysCheck(cdp, problems) {
   const before = problems.length;
   let bad = 0;
@@ -296,17 +297,19 @@ async function formatKeysCheck(cdp, problems) {
   const select = (doc, a, h) => cdp.eval(`(() => { __ef.load("basic"); __ef.editor.setDoc(${JSON.stringify(doc)}); const v = __ef.editor.view; v.focus(); v.dispatch({ selection: { anchor: ${a}, head: ${h} } }); })()`);
   let got;
   await select("지난 일정 정리", 0, 5);
-  if ((got = await press("X", "KeyX", 88, 10)) !== "~~지난 일정~~ 정리") fail("Ctrl+Shift+X did not wrap " + JSON.stringify(got));
-  if ((got = await press("X", "KeyX", 88, 10)) !== "지난 일정 정리") fail("second Ctrl+Shift+X did not unwrap " + JSON.stringify(got));
+  if ((got = await press("%", "Digit5", 53, 9)) !== "~~지난 일정~~ 정리") fail("Alt+Shift+5 did not wrap " + JSON.stringify(got));
+  if ((got = await press("%", "Digit5", 53, 9)) !== "지난 일정 정리") fail("second Alt+Shift+5 did not unwrap " + JSON.stringify(got));
   await cdp.eval(`__ef.editor.view.dispatch({ selection: { anchor: 0, head: 5 } })`);
-  await press("X", "KeyX", 88, 10);
+  await press("%", "Digit5", 53, 9);
   await cdp.eval(`__ef.editor.view.dispatch({ selection: { anchor: __ef.editor.view.state.doc.length } })`);
   await sleep(500);
   if (!(await cdp.eval(`!!document.querySelector(".ef-strike") && !__ef.editor.view.contentDOM.textContent.includes("~~")`))) fail("strikethrough is not drawn (or ~~ is visible)");
   await select("가나다", 0, 3);
+  if ((got = await press("X", "KeyX", 88, 10)) !== "가나다") fail("Ctrl+Shift+X still toggles strike " + JSON.stringify(got));
+  await select("가나다", 0, 3);
   if ((got = await press("b", "KeyB", 66, 2)) !== "**가나다**") fail("Ctrl+B did not wrap " + JSON.stringify(got));
   if (problems.length > before) { bad++; for (const p of problems.slice(before)) console.log("  " + p); }
-  console.log(`${bad ? "FAIL" : "PASS"} format keys (Ctrl+Shift+X strike on/off and drawn, Ctrl+B)`);
+  console.log(`${bad ? "FAIL" : "PASS"} format keys (Alt+Shift+5 strike on/off and drawn, Ctrl+Shift+X is not strike, Ctrl+B)`);
   return bad ? 1 : 0;
 }
 

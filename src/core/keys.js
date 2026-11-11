@@ -35,7 +35,7 @@ export function shiftLines(view, dir) {
   return true;
 }
 
-// Ctrl/⌘+B · U · Shift+X. Mixed selections are left untouched (noop).
+// Ctrl/⌘+B · U, Alt+Shift+5 (strike). Mixed selections are left untouched (noop).
 function formatWith(fn) {
   return (view) => {
     const { state } = view;
@@ -96,5 +96,7 @@ export const editKeys = Prec.high(keymap.of([
   { key: "Tab", run: (v) => shiftLines(v, 1), shift: (v) => shiftLines(v, -1) },
   { key: "Mod-b", run: formatWith(toggleBoldSelection) },
   { key: "Mod-u", run: formatWith(toggleUnderlineSelection) },
-  { key: "Mod-Shift-x", run: formatWith(toggleStrikeSelection) },
+  // Alt+Shift+5 as in Google Docs. Ctrl/⌘+Shift+X was too close to Ctrl+X (cut). CodeMirror matches the
+  // shifted digit through its keyCode fallback, so "%" on US layouts and other layouts both work.
+  { key: "Alt-Shift-5", run: formatWith(toggleStrikeSelection) },
 ]));

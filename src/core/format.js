@@ -35,7 +35,7 @@ function toggleSymmetric(marker, sel, ctx) {
 }
 
 export const toggleBoldSelection = (sel, ctx) => toggleSymmetric("**", sel, ctx);
-// GFM strikethrough `~~…~~` (Ctrl/⌘+Shift+X).
+// GFM strikethrough `~~…~~` (Alt+Shift+5).
 export const toggleStrikeSelection = (sel, ctx) => toggleSymmetric("~~", sel, ctx);
 
 // Underline is stored as <u>…</u> (markdown has no underline).
